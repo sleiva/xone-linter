@@ -1,0 +1,18 @@
+# Dependencias y artefactos de Node.js
+node_modules/
+dist/
+coverage/
+*.log
+
+# TypeScript
+*.tsbuildinfo
+
+# Vitest
+.vitest/
+
+# Python (cliente LangChain)
+__pycache__/
+.pytest_cache/
+
+# macOS
+.DS_Store

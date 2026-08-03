@@ -1,0 +1,710 @@
+import type { ViewState } from './ViewState.js';
+import { groupKey, isDrawerGroup, isFixedGroup, isRenderablePage, type UIGroup } from './Group.js';
+import type { UIFrame } from './Frame.js';
+import type { UIControl } from './Control.js';
+import { styleDeclsFromAttributes, declsToInline, xoneImgToCss, xoneLengthToCss, xoneColorToCss, resolveHeightPx, textBorderDecls, parseAlign, type ResolveImg } from './styleMap.js';
+
+// max-width:420px es el mismo RENDER_WIDTH usado por XoneRuntime.renderHtml para calcular
+// el scale (RENDER_WIDTH / resolution-width) — mantener ambos valores sincronizados.
+// `.xone-group`/`.xone-frame` NO llevan padding: XOne no inseta con padding de contenedor,
+// posiciona por los MÁRGENES de cada elemento (como el device). El padding decorativo previo
+// (group 6px, frame 4px) era un artefacto del simulador que (a) recortaba el ancho útil —una
+// barra de celdas fijas 5×84=420 no cabía en los ~392 restantes y la última envolvía/clipaba—
+// y (b) inflaba el alto por encima de la coll (overflow:hidden lo cortaba). Sin él las barras
+// full-width llegan borde a borde (cabecera/barra inferior = device) y el contenido cabe en
+// alto. `box-sizing:border-box` se mantiene por si una clase CSS añade `border`. La coll queda
+// en content-box a propósito: su contenido = RENDER_WIDTH (420px).
+// Colores del switch por defecto del framework para type="NC" (sourceados, NO adivinar):
+// track ON/OFF = UIColor.red.withAlphaComponent(0.6)  → iXonev2/Controls/Switch/XoneEditNCProperty.swift:34-35
+// thumb OFF = rgb(249,249,249), thumb ON = rgb(52,109,241) → iXonev2/Controls/Switch/XoneMaterialSwitch.swift:66-70
+const SWITCH_TRACK = 'rgba(255,0,0,0.6)';
+const SWITCH_THUMB_OFF = '#F9F9F9';
+const SWITCH_THUMB_ON = '#346DF1';
+const BASE_CSS = `
+body{font-family:sans-serif;font-size:17px;margin:0;padding:8px;background:#eee}
+.xone-coll{background:#fff;max-width:420px;margin:0 auto;border:1px solid #ccc}
+.xone-coll>h1{font-size:16px;margin:0;padding:8px;background:#1565C0;color:#fff}
+.xone-group,.xone-frame{box-sizing:border-box}
+.xone-frame{display:block}
+.xone-row{display:flex;flex-wrap:wrap;align-items:flex-start}
+.xone-row>*{box-sizing:border-box;min-width:0}
+/* la fila de un solo hijo no debe romper la cadena de height:% — el hijo resuelve contra el frame/section */
+.xone-row:has(> :only-child){display:contents}
+.xone-prop{display:flex;flex-direction:column;margin:4px 0}
+.xone-prop>label{display:block;font-size:11px;color:#555}
+.xone-prop--hlabel{flex-direction:row;column-gap:8px}
+.xone-prop--hlabel>label{flex:0 0 auto;align-self:center}
+.xone-prop>button,.xone-prop>input:not([type=checkbox]),.xone-prop>textarea{flex:1 1 auto;width:100%;box-sizing:border-box;background:transparent;color:inherit;font:inherit;min-height:0}
+.xone-prop>button{border:none;text-align:inherit}
+.xone-prop[data-type="B"]{text-align:center}
+.xone-prop[data-type="B"]>button{display:flex;align-items:center;justify-content:center}
+.xone-btn-icon{max-width:100%;max-height:100%;object-fit:contain}
+.xone-prop>input:not([type=checkbox]),.xone-prop>textarea{border:1px solid #bbb;text-align:inherit}
+.xone-prop>input[type=checkbox]{align-self:flex-start}
+.xone-switch{position:relative;display:inline-block;width:40px;height:24px;flex:0 0 auto;align-self:center}
+.xone-switch__track{position:absolute;left:12px;width:16px;top:5px;height:14px;border-radius:7px;background:${SWITCH_TRACK}}
+.xone-switch__thumb{position:absolute;top:0;width:24px;height:24px;border-radius:50%;box-shadow:0 1px 2px rgba(0,0,0,.4)}
+.xone-switch[data-on="0"] .xone-switch__thumb{left:0;background:${SWITCH_THUMB_OFF}}
+.xone-switch[data-on="1"] .xone-switch__thumb{left:16px;background:${SWITCH_THUMB_ON}}
+.xone-progress{position:relative;width:100%;height:4px;border-radius:2px;background:#E5E5EA;overflow:hidden;align-self:center;flex:0 0 auto}
+.xone-progress__fill{height:100%;border-radius:2px;background:#007AFF}
+.xone-slider{position:relative;width:100%;height:20px;align-self:center;flex:0 0 auto}
+.xone-slider__track{position:absolute;top:50%;left:0;right:0;transform:translateY(-50%);height:3px;border-radius:2px;background:#C7C7CC;overflow:hidden}
+.xone-slider__fill{height:100%;background:#007AFF}
+.xone-slider__thumb{position:absolute;top:50%;width:20px;height:20px;border-radius:50%;background:#FFFFFF;box-shadow:0 1px 3px rgba(0,0,0,.4);transform:translate(-50%,-50%)}
+.xone-select{display:flex;align-items:center;justify-content:space-between;gap:4px;border:1px solid #bbb;padding:2px 6px;background:#fff}
+.xone-select__value{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.xone-select__arrow{color:#666;font-size:10px;flex:none}
+.xone-select[data-disabled="true"]{opacity:.6}
+.xone-field-icon{display:flex;align-items:center;gap:4px}
+.xone-field-icon>input{flex:1;min-width:0}
+.xone-field-icon__img{flex:none;width:16px;height:16px;object-fit:contain}
+.xone-attach{display:flex;align-items:center;justify-content:flex-end;gap:8px;min-height:24px}
+.xone-vm{border:1px dashed #999;padding:8px;color:#666;font-size:12px}
+.xone-tabs{border:1px solid #bbb;margin:4px 0}
+.xone-tabbar{display:flex;flex-wrap:wrap;gap:2px;background:#e3e3e3;padding:2px}
+.xone-tab{font-size:11px;padding:2px 8px;background:#fff;border:1px solid #ccc;border-radius:4px 4px 0 0}
+.xone-tab--active{font-weight:bold;border-bottom:2px solid #1565C0}
+.xone-grid{list-style:none;margin:0;padding:0;display:flex;flex-wrap:wrap;align-content:flex-start}
+.xone-grid>li{box-sizing:border-box}
+.xone-grid--h{flex-wrap:nowrap;overflow-x:auto}
+.xone-grid--h>li{flex:0 0 auto}
+.xone-drawer{position:fixed;top:0;bottom:0;width:80%;max-width:320px;background:#fff;box-shadow:0 0 12px rgba(0,0,0,.3);overflow:auto;z-index:50}
+.xone-drawer[data-drawer-orientation="right"]{right:0}
+.xone-drawer[data-drawer-orientation="left"]{left:0}
+.xone-drawer-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:40}
+`.trim();
+
+// Solo se añade al <style> cuando opts.height está definido (F4/G2): sin height, la salida
+// debe ser byte a byte idéntica a la de antes de este corte (comportamiento previo).
+const VIEWPORT_CSS = `
+.xone-viewport{flex:1 1 auto;min-height:0;overflow-y:auto}
+.xone-viewport>.xone-tabs,.xone-viewport>section.xone-group{height:100%;box-sizing:border-box}
+.xone-tabs{display:flex;flex-direction:column}
+.xone-tabs>section.xone-group{flex:1 1 auto;min-height:0}
+.xone-coll>:not(.xone-viewport){flex-shrink:0}
+`.trim();
+
+type Resolve = (text: string) => string;
+const identity: Resolve = (t) => t;
+
+export interface ToolbarOpts { show: boolean; bgcolor?: string; forecolor?: string; }
+
+export function renderViewHtml(
+  view: ViewState, translatedCss: string, resolve: Resolve = identity,
+  opts: { scale?: number; height?: number; toolbar?: ToolbarOpts; resolveImg?: ResolveImg } = {},
+): string {
+  const scale = opts.scale ?? 1;
+  const inner = renderColl(view, resolve, scale, opts.height, opts.toolbar, opts.resolveImg);
+  const css = opts.height !== undefined ? `${BASE_CSS}\n${VIEWPORT_CSS}` : BASE_CSS;
+  return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(resolve(view.title ?? view.collName))}</title>`
+    + `<style>${css}\n${translatedCss}</style></head><body>${inner}</body></html>`;
+}
+
+function groupLabel(g: UIGroup, resolve: Resolve): string {
+  return resolve(g.attributes.title || g.name || g.id || '');
+}
+function renderTabSet(
+  groups: UIGroup[], resolve: Resolve, scale: number, parentPx: number | undefined, activeGroup?: string, notab?: boolean,
+  resolveImg?: ResolveImg,
+): string {
+  const swipe = groups.some(g => g.attributes['group-swipe'] === 'true');
+  const labels = groups.map(g => groupLabel(g, resolve));
+  const activePage = groups.find(g => groupKey(g) === activeGroup) ?? groups[0];
+  const tabbar = notab ? '' : `<div class="xone-tabbar">${groups.map((g, i) => {
+    const active = g === activePage;
+    const cls = active ? 'xone-tab xone-tab--active' : 'xone-tab';
+    return `<span class="${cls}" aria-selected="${active}">${esc(labels[i])}</span>`;
+  }).join('')}</div>`;
+  // parentPx del panel activo: misma aproximación grupo=viewport (ver renderColl).
+  const panel = renderGroup(activePage, resolve, scale, parentPx, groupLabel(activePage, resolve), true, resolveImg);
+  const notabAttr = notab ? ' data-notab="true"' : '';
+  return `<div class="xone-tabs" data-tab-mode="${swipe ? 'swipe' : 'tabs'}"${notabAttr}>${tabbar}${panel}</div>`;
+}
+
+function renderH1(view: ViewState, resolve: Resolve, toolbar?: ToolbarOpts): string {
+  const title = esc(resolve(view.title ?? view.collName));
+  if (!toolbar) return `<h1>${title}</h1>`;
+  if (!toolbar.show) return '';
+  const decls = [toolbar.bgcolor ? `background:${toolbar.bgcolor}` : '', toolbar.forecolor ? `color:${toolbar.forecolor}` : '']
+    .filter(Boolean).join(';');
+  return `<h1${decls ? ` style="${decls}"` : ''}>${title}</h1>`;
+}
+
+function renderColl(
+  view: ViewState, resolve: Resolve, scale: number, height?: number, toolbar?: ToolbarOpts, resolveImg?: ResolveImg,
+): string {
+  const out: string[] = [];
+  let run: UIGroup[] = [];
+  const notab = view.attributes.notab === 'true';
+  // parentPx del nivel grupo/página: 100% del viewport disponible (aproximación documentada —
+  // no se descuenta el alto de los grupos fijos/drawers; ver informe G2-ter(a)).
+  const parentPx = height;
+  // Cada racha de páginas se envuelve en su propio `.xone-viewport` (abre en el primer
+  // grupo de página de la racha, cierra en el último). Si un grupo fijo/drawer interrumpe
+  // dos rachas, el flush anterior ya cerró su wrapper y el siguiente abre uno nuevo — así
+  // "header fijo + páginas + footer fijo" produce un único wrapper (caso típico), y un fijo
+  // EN MEDIO de dos rachas produce dos wrappers separados (decisión simple, ver informe).
+  const flush = () => {
+    if (run.length === 0) return;
+    const html = run.length >= 2
+      ? renderTabSet(run, resolve, scale, parentPx, view.activeGroup, notab, resolveImg)
+      : renderGroup(run[0], resolve, scale, parentPx, undefined, undefined, resolveImg);
+    out.push(height !== undefined ? `<div class="xone-viewport">${html}</div>` : html);
+    run = [];
+  };
+  const bottomFixed: UIGroup[] = [];
+  for (const g of view.groups) {
+    // drawer primero: isDrawerGroup ⊂ !isPageGroup; sin esta guardia caería en la rama de "fijos"
+    if (isDrawerGroup(g.attributes)) { flush(); out.push(renderDrawer(g, resolve, scale, parentPx, view.openDrawers?.has(g.id ?? ''), resolveImg)); }
+    // Fijo anclado abajo (orientation="bottom", del XML o materializado de groupfixed_footer):
+    // se difiere para emitirlo TRAS el viewport — fiel a EditViewController.mm:881-883 (posición
+    // = orientation, default "top"; solo "bottom" baja). NO se hace flush → las páginas antes y
+    // después del footer forman un único viewport (el footer no parte el contenido).
+    else if (isFixedGroup(g.attributes) && g.attributes.orientation === 'bottom') { bottomFixed.push(g); }
+    else if (!isRenderablePage(g)) { flush(); out.push(renderGroup(g, resolve, scale, parentPx, undefined, undefined, resolveImg)); } // fijos + páginas sin props de form + floating (overlay real = G21); rama incondicional (ignora g.visible) → una página de bag vacío emite igualmente un <section> vacío (coste visual cero; el oráculo no lo instancia — atado a G21)
+    else if (g.visible) run.push(g); // un grupo invisible no cuenta para la racha de páginas
+  }
+  flush();
+  // Vista sin ningún contenido (ni fijo/drawer ni página): con height definido garantizamos
+  // igualmente un `.xone-viewport` (área de contenido siempre presente, aunque vacía).
+  if (height !== undefined && out.length === 0) out.push('<div class="xone-viewport"></div>');
+  for (const g of bottomFixed) out.push(renderGroup(g, resolve, scale, parentPx, undefined, undefined, resolveImg));
+  const backdrop = view.openDrawers && view.openDrawers.size > 0 ? '<div class="xone-drawer-backdrop"></div>' : '';
+  const collStyle = height !== undefined ? ` style="height:${height}px;display:flex;flex-direction:column;overflow:hidden"` : '';
+  return `<div class="xone-coll"${collStyle}>${renderH1(view, resolve, toolbar)}${out.join('')}${backdrop}</div>`;
+}
+
+function renderGroup(
+  g: UIGroup, resolve: Resolve, scale: number, parentPx: number | undefined, tab?: string, active?: boolean, resolveImg?: ResolveImg,
+): string {
+  if (!g.visible) return '';
+  // Contexto de posición para frames flotantes descendientes (position:absolute → relativo
+  // a este grupo). Inocuo para el flujo normal; gate para no tocar grupos sin flotantes.
+  const posOv = hasFloatingFrame(g.frames) ? { position: 'relative' } : undefined;
+  const style = inline(g.attributes, scale, true, posOv, resolveImg);
+  const cls = classAttr('xone-group', g.attributes);
+  const children = renderChildren(g.childOrder, g.frames, g.controls, resolve, scale, parentPx, resolveImg, rowJustifyFor(g.attributes), rowAlignFor(g.attributes));
+  const tabAttr = tab !== undefined ? ` data-tab="${esc(tab)}"` : '';
+  const activeAttr = active !== undefined ? ` data-active="${active}"` : '';
+  return `<section ${cls}${style} data-id="${esc(g.id ?? '')}"${tabAttr}${activeAttr}>${children}</section>`;
+}
+
+function renderDrawer(
+  g: UIGroup, resolve: Resolve, scale: number, parentPx: number | undefined, open?: boolean, resolveImg?: ResolveImg,
+): string {
+  if (!g.visible) return ''; // drawer oculto por disablevisible
+  const orient = g.attributes['drawer-orientation'] || 'left';
+  const style = inline(g.attributes, scale, true, undefined, resolveImg);
+  const cls = classAttr('xone-drawer', g.attributes);
+  const children = renderChildren(g.childOrder, g.frames, g.controls, resolve, scale, parentPx, resolveImg, rowJustifyFor(g.attributes), rowAlignFor(g.attributes));
+  const openAttr = open ? ' data-open="true"' : ' data-open="false" hidden';
+  return `<aside ${cls}${style} data-id="${esc(g.id ?? '')}" data-drawer-orientation="${esc(orient)}"${openAttr}>${children}</aside>`;
+}
+
+/** Overrides de posición para un frame `floating="true"` (fiel a EditFrameControl.mm:359-405):
+ *  sale del flujo (position:absolute) y se posiciona en top/left (xoneLengthToCss, misma escala
+ *  que width/height). `top`/`left` ausentes (o no resolubles) → `0px`, fiel a positionLeft/
+ *  positionTop (`EditFrameControl.mm:6734-6735,6767-6768`: `return 0.0` si el cache es nil) —
+ *  NO se deja en la posición de flujo. Consumidores sin top/left: AliviaApp Documents
+ *  frmUploadPopup, FontIconsApp frmBottom. undefined si el frame no es floating. */
+function floatingOverride(attrs: Record<string, string>, scale: number): Record<string, string> | undefined {
+  if (attrs.floating !== 'true') return undefined;
+  return {
+    position: 'absolute',
+    left: xoneLengthToCss(attrs.left, scale) ?? '0px',
+    top: xoneLengthToCss(attrs.top, scale) ?? '0px',
+  };
+}
+
+/** ¿Algún frame del subárbol es floating? El grupo que lo contiene necesita position:relative
+ *  para ser el contexto de posición del overlay. */
+function hasFloatingFrame(frames: UIFrame[]): boolean {
+  return frames.some(f => f.attributes.floating === 'true' || hasFloatingFrame(f.frames));
+}
+
+function renderFrame(
+  f: UIFrame, resolve: Resolve, scale: number, parentPx: number | undefined, overrides?: Record<string, string>,
+  resolveImg?: ResolveImg,
+): string {
+  if (!f.visible) return '';
+  // Oráculo iXonev2/EditPropertyControl.mm:3504 (TopMargin): '%' → getParentHeight(superview)·pct/100;
+  // CSS resuelve TODO margen % contra el ANCHO → convertimos a px aquí cuando conocemos parentPx.
+  const marginOv = verticalMarginOverride(f.attributes, parentPx, scale);
+  // floating="true" → overlay fuera de flujo en top/left; el grupo contenedor da el
+  // contexto de posición (renderGroup → position:relative).
+  const floatOv = floatingOverride(f.attributes, scale);
+  const mergedOv = (marginOv || floatOv) ? { ...overrides, ...marginOv, ...floatOv } : overrides;
+  const style = inline(f.attributes, scale, true, mergedOv, resolveImg);
+  const cls = classAttr('xone-frame', f.attributes);
+  const childParentPx = resolveHeightPx(f.attributes.height, parentPx, scale);
+  const children = renderChildren(f.childOrder, f.frames, f.controls, resolve, scale, childParentPx, resolveImg, rowJustifyFor(f.attributes), rowAlignFor(f.attributes));
+  return `<div ${cls}${style}>${children}</div>`;
+}
+
+const VERTICAL_MARGIN_ATTRS = [['tmargin', 'margin-top'], ['bmargin', 'margin-bottom']] as const;
+
+/** Override de `margin-top`/`margin-bottom` a px cuando el atributo XOne es un `%` y se conoce
+ *  `parentPx` (altura del padre) — ver cita de oráculo en `renderFrame`. Longitudes en `p`/número
+ *  no se tocan (ya las resuelve `xoneLengthToCss` correctamente, son absolutas). */
+function verticalMarginOverride(
+  attrs: Record<string, string>, parentPx: number | undefined, scale: number,
+): Record<string, string> | undefined {
+  if (parentPx === undefined) return undefined;
+  let out: Record<string, string> | undefined;
+  for (const [attr, css] of VERTICAL_MARGIN_ATTRS) {
+    const raw = attrs[attr]?.trim();
+    if (!raw || !raw.endsWith('%')) continue;
+    const px = resolveHeightPx(raw, parentPx, scale);
+    if (px === undefined) continue;
+    (out ??= {})[css] = `${px}px`;
+  }
+  return out;
+}
+
+function rowsByNewline<T extends { visible: boolean; attributes: Record<string, string> }>(items: T[]): T[][] {
+  const visibles = items.filter(i => i.visible);
+  const rows: T[][] = [];
+  for (const it of visibles) {
+    if (it.attributes.newline === 'false' && rows.length > 0) rows[rows.length - 1].push(it);
+    else rows.push([it]);
+  }
+  return rows;
+}
+
+type RenderChild =
+  | { kind: 'frame'; f: UIFrame }
+  | { kind: 'control'; c: UIControl };
+
+/** Item de fila para `rowsByNewline`: expone `visible`/`attributes` del hijo (frame o control)
+ *  y conserva la referencia tipada en `it`. */
+interface ChildItem { visible: boolean; attributes: Record<string, string>; it: RenderChild; }
+
+function orderedChildren(
+  childOrder: ('frame' | 'control')[] | undefined, frames: UIFrame[], controls: UIControl[],
+): RenderChild[] {
+  if (!childOrder) {
+    return [
+      ...frames.map(f => ({ kind: 'frame', f } as RenderChild)),
+      ...controls.map(c => ({ kind: 'control', c } as RenderChild)),
+    ];
+  }
+  const out: RenderChild[] = [];
+  let fi = 0, ci = 0;
+  for (const k of childOrder) {
+    if (k === 'frame' && fi < frames.length) out.push({ kind: 'frame', f: frames[fi++] });
+    else if (k === 'control' && ci < controls.length) out.push({ kind: 'control', c: controls[ci++] });
+  }
+  while (fi < frames.length) out.push({ kind: 'frame', f: frames[fi++] });
+  while (ci < controls.length) out.push({ kind: 'control', c: controls[ci++] });
+  return out;
+}
+
+function renderChildren(
+  childOrder: ('frame' | 'control')[] | undefined, frames: UIFrame[], controls: UIControl[], resolve: Resolve, scale: number,
+  parentPx: number | undefined, resolveImg?: ResolveImg, rowJustify?: string, rowAlign?: string,
+): string {
+  const items: ChildItem[] = orderedChildren(childOrder, frames, controls).map(it => ({
+    visible: it.kind === 'frame' ? it.f.visible : it.c.visible,
+    attributes: it.kind === 'frame' ? it.f.attributes : it.c.attributes,
+    it,
+  }));
+  const PCT_RE = /^(\d+(?:\.\d+)?)%$/;
+  return rowsByNewline(items)
+    .map(row => {
+      // los hijos de una fila (frame único o multi-hijo) resuelven sus márgenes % verticales
+      // contra la altura px del FRAME contenedor (parentPx), no contra la fila-artefacto.
+      if (row.length === 1 && row[0].it.kind === 'frame') return renderFrame(row[0].it.f, resolve, scale, parentPx, undefined, resolveImg);
+      // Direction 2: el CONTENEDOR conserva su align-items:<h> (bare/solitary children —
+      // frame único, `.xone-row:has(>:only-child)` display:contents — siguen ese align); cada
+      // `.xone-row` real se estira a ancho completo con align-self:stretch (overridea el
+      // align-items del padre SOLO para la fila) y posiciona su contenido con justify-content.
+      const abTitle = appBarTitleIndex(row);
+      const rowFlex = [
+        rowJustify ? `align-self:stretch;justify-content:${rowJustify}` : '',
+        rowAlign ? `align-items:${rowAlign}` : '',
+        abTitle >= 0 ? 'flex-wrap:nowrap' : '',
+      ].filter(Boolean).join(';');
+      const pcts = row.map(r => { const m = PCT_RE.exec((r.attributes.height ?? '').trim()); return m ? parseFloat(m[1]) : undefined; });
+      const hasPct = pcts.some(p => p !== undefined) && row.length > 1;
+      // Oráculo EditPageRow.mm:233-276 (línea 275): la altura de la línea es el MÁXIMO de
+      // TODOS los hijos (%, fijos o intrínsecos). Con parentPx conocido convertimos cada
+      // hijo % a px contra el PADRE (EditPropertyControl.mm:3504) y dejamos la fila en
+      // altura auto — así un hermano fijo/intrínseco que exceda el máximo % agranda la
+      // fila (fila mixta) en vez de desbordarla.
+      if (hasPct && parentPx !== undefined) {
+        const inner = row.map((r, i) => {
+          const px = pcts[i] !== undefined ? resolveHeightPx(r.attributes.height, parentPx, scale) : undefined;
+          let ov: Record<string, string> | undefined = px !== undefined ? { height: `${px}px` } : undefined;
+          // el título del app-bar llena el centro (flex:1); si el frame centra en vertical, su
+          // label también se centra (la prop es flex-column → justify-content = eje vertical).
+          if (i === abTitle) ov = { ...(ov ?? {}), flex: '1', ...(rowAlign ? { 'justify-content': rowAlign } : {}) };
+          return r.it.kind === 'frame'
+            ? renderFrame(r.it.f, resolve, scale, parentPx, ov, resolveImg)
+            : renderControl(r.it.c, resolve, scale, parentPx, ov, resolveImg);
+        }).join('');
+        return `<div class="xone-row"${rowFlex ? ` style="${rowFlex}"` : ''}>${inner}</div>`;
+      }
+      // Sin parentPx no hay base contra la que resolver px: best-effort F7 (row=max% +
+      // hijos re-escalados a % de fila).
+      const maxPct = hasPct ? Math.max(...pcts.filter((p): p is number => p !== undefined)) : undefined;
+      const rowDecls = [maxPct ? `height:${maxPct}%` : '', rowFlex].filter(Boolean).join(';');
+      const rowStyle = rowDecls ? ` style="${rowDecls}"` : '';
+      const inner = row.map((r, i) => {
+        let ov: Record<string, string> | undefined = maxPct && pcts[i] !== undefined ? { height: `${Math.round((pcts[i]! / maxPct) * 1000) / 10}%` } : undefined;
+        // el título del app-bar llena el centro (flex:1); si el frame centra en vertical, su
+        // label también se centra (la prop es flex-column → justify-content = eje vertical).
+        if (i === abTitle) ov = { ...(ov ?? {}), flex: '1', ...(rowAlign ? { 'justify-content': rowAlign } : {}) };
+        return r.it.kind === 'frame'
+          ? renderFrame(r.it.f, resolve, scale, parentPx, ov, resolveImg)
+          : renderControl(r.it.c, resolve, scale, parentPx, ov, resolveImg);
+      }).join('');
+      return `<div class="xone-row"${rowStyle}>${inner}</div>`;
+    })
+    .join('');
+}
+
+/** `scale-type` de un control IMG/PH → `object-fit` CSS del `<img>` (oráculo device: llenan
+ *  su contenedor recortando/estirando por aspecto, no encogen como `max-width:100%`). */
+const IMG_SCALE_TYPE_FIT: Record<string, string> = { center_crop: 'cover', fit_xy: 'fill' };
+
+/** Override `height:100%` del WRAPPER (`.xone-prop`) para que el `<img>` al 100%/100% tenga
+ *  una caja real que llenar — SOLO si el prop no declara ya su propia altura ("height activo").
+ *  El gate no es la presencia cruda del attr: `height` inválido/sentinela sin resolución
+ *  estática (`-1`→auto, vacío, basura) equivale a SIN altura real — se comprueba con
+ *  `xoneLengthToCss` (mismo parser que usa el resto del renderer) y se exige un valor
+ *  DISTINTO de `auto`/`undefined`; `xheight` no es un atributo del parser, no aplica. Claves
+ *  distintas de `verticalMarginOverride` (`margin-top`/`margin-bottom`) → mergeable sin pisar. */
+function imgFillOverride(base: string, attrs: Record<string, string>, scale: number): Record<string, string> | undefined {
+  if (base !== 'IMG' && base !== 'PH') return undefined;
+  if (!IMG_SCALE_TYPE_FIT[attrs['scale-type'] ?? '']) return undefined;
+  const height = xoneLengthToCss(attrs.height, scale);
+  if (height !== undefined && height !== 'auto') return undefined;
+  return { height: '100%' };
+}
+
+function formatDateValue(value: unknown, base: string): string | undefined {
+  if (!(value instanceof Date) || Number.isNaN(value.getTime())) return undefined;
+  const p = (n: number) => String(n).padStart(2, '0');
+  const date = `${p(value.getDate())}/${p(value.getMonth() + 1)}/${value.getFullYear()}`;
+  const hm = `${p(value.getHours())}:${p(value.getMinutes())}`;
+  if (base === 'D') return date;
+  if (base === 'TT') return `${hm}:${p(value.getSeconds())}`;
+  return `${date} ${hm}`; // DT y cualquier otro tipo con valor Date
+}
+
+/** Icono trailing de fecha/hora/teléfono, fiel a `iXonev2/EditTextProperty.mm`:
+ *  phone (`:492`, `phone="true"` → img-phone), fecha (`:515`, T_DATE="D" → img-date),
+ *  hora (`:529`, T_TIME2="TT" → img-time). Gate por TIPO: `img-*` está en TODOS los
+ *  props (default CSS `prop` vía `.classprop→prop`, verificado por probe), así que el
+ *  discriminante es el tipo. `DT` NO cualifica (`:515` exige exactamente "D"). Imagen
+ *  real vía `resolveImg('icon')`; sin resolución → '' (sin icono, no glifo). */
+function fieldTrailingIcon(c: UIControl, resolveImg?: ResolveImg): string {
+  const a = c.attributes;
+  const base = c.type.replace(/\d+$/, '');
+  let name: string | undefined;
+  if (base === 'D' && a['img-date']) name = a['img-date'];
+  else if (base === 'TT' && a['img-time']) name = a['img-time'];
+  else if (a.phone === 'true' && a['img-phone']) name = a['img-phone'];
+  if (!name) return '';
+  const src = xoneImgToCss(name, resolveImg, 'icon');
+  if (!src) return '';
+  return `<img class="xone-field-icon__img" src="${esc(src)}" alt="">`;
+}
+
+function renderControl(
+  c: UIControl, resolve: Resolve, scale: number, parentPx: number | undefined, overrides?: Record<string, string>,
+  resolveImg?: ResolveImg,
+): string {
+  if (!c.visible) return '';
+  const base = c.type.replace(/\d+$/, '');
+  const marginOv = verticalMarginOverride(c.attributes, parentPx, scale);
+  const fillOv = imgFillOverride(base, c.attributes, scale);
+  let mergedOv = overrides;
+  if (marginOv) mergedOv = { ...mergedOv, ...marginOv };
+  if (fillOv) mergedOv = { ...mergedOv, ...fillOv };
+  // Botón con imagen Y bgcolor → sin fondo (fiel a EditButtonProperty.mm:373: imgatt==NULL
+  // gate; el bloque que pinta cbgColor solo corre si el botón NO tiene imagen). Overridea el
+  // bgcolor materializado (p. ej. #cccccc del prop:B classless, o bgcolor explícito). Un botón
+  // con clase (menufijo) sin bgcolor no necesita override (nunca tuvo fondo que suprimir).
+  // Un botón SIN img conserva su bgcolor (p. ej. LOGUEARSE verde/amarillo).
+  if (base === 'B' && c.attributes.img && c.attributes.bgcolor) mergedOv = { ...mergedOv, 'background-color': 'transparent' };
+  const style = inline(c.attributes, scale, false, mergedOv, resolveImg);
+  const title = resolve(c.title ?? '');
+  // G5: la etiqueta va EN LÍNEA a la izquierda con ancho `labelwidth` en caracteres
+  // (doc: default 10; 0 = sin etiqueta). El title vacío tampoco pinta etiqueta.
+  // labelwidth no-positivo (0 o negativo) = sin etiqueta, igual que 0; solo NaN/vacío cae
+  // al default 10 de la doc.
+  const lwRaw = parseInt(c.attributes.labelwidth ?? '', 10);
+  const labelWidth = Number.isFinite(lwRaw) ? lwRaw : 10;
+  // El title de un botón (B) es su TEXTO, no una etiqueta: nunca adopta el modo
+  // label-en-línea (que cambiaría el eje del flex y le impediría llenar su caja).
+  const hasLabel = base !== 'B' && Boolean(c.title) && labelWidth > 0;
+  // En L/TL el título ES el contenido (etiqueta de solo lectura): va como bloque
+  // completo, no en línea con ancho fijo — el hlabel a 10ch lo truncaba/envolvía
+  // (visto en device: "Version App: 0.0.2.604" completo, no en 10ch). El gate
+  // `hasLabel` (labelwidth=0/title vacío → sin label) se mantiene igual para L/TL;
+  // lo que cambia es solo la FORMA del label (bloque vs en línea) y la clase.
+  const inlineLabel = hasLabel && !['B', 'L', 'TL'].includes(base);
+  const label = hasLabel
+    ? (inlineLabel ? `<label style="width:${labelWidth}ch">${esc(title)}</label>` : `<label>${esc(title)}</label>`)
+    : '';
+  // tooltip="" (presente pero vacío) cae a caption — no se queda en cadena vacía.
+  const placeholderText = c.attributes.tooltip || c.attributes.caption;
+  const ph = placeholderText ? ` placeholder="${esc(resolve(placeholderText))}"` : '';
+  const cls = classAttr(inlineLabel ? 'xone-prop xone-prop--hlabel' : 'xone-prop', c.attributes);
+  const wrap = (innerHtml: string) => `<div ${cls}${style} data-type="${esc(c.type)}">${innerHtml}</div>`;
+  const ro = c.editable ? '' : ' disabled';
+  const vm = c.attributes.viewmode;
+  const val = formatDateValue(c.value, base) ?? resolve(c.value == null ? '' : String(c.value));
+
+  // G19: borde del ELEMENTO de texto desde text-border* (subrayado / caja parcial).
+  const ebDecls = declsToInline(textBorderDecls(c.attributes, scale));
+  const eb = ebDecls ? ` style="${ebDecls}"` : '';
+
+  const lines = parseInt(c.attributes.lines ?? '', 10);
+  const multiline = Number.isFinite(lines) && lines > 1;
+  const rows = lines;
+
+  if (vm && ['kanban', 'range-slider', 'mapview', 'coverflow', 'chart'].includes(vm)) {
+    return wrap(`${label}<div class="xone-vm">[${esc(vm)}] ${esc(c.name)}</div>`);
+  }
+  if (vm === 'progress-bar') {
+    // Barra horizontal (UIProgressView) — sourceado de EditProgressBar.swift:
+    // bar-color→relleno, track-color→track, fracción=(valor−min)/(max−min) clamp, min=0/max=100.
+    const min = Number(c.attributes.min ?? '0');
+    const max = Number(c.attributes.max ?? '100');
+    const raw = Number(val);
+    const range = max - min;
+    const frac = Number.isFinite(raw) && range > 0 ? Math.min(1, Math.max(0, (raw - min) / range)) : 0;
+    const pct = +(frac * 100).toFixed(1);
+    const track = xoneColorToCss(c.attributes['track-color']);
+    const bar = xoneColorToCss(c.attributes['bar-color']);
+    const trackStyle = track ? ` style="background:${track}"` : '';
+    const fillStyle = `width:${pct}%${bar ? `;background:${bar}` : ''}`;
+    return wrap(`${label}<div class="xone-progress"${trackStyle}><div class="xone-progress__fill" style="${fillStyle}"></div></div>`);
+  }
+  if (vm === 'slider') {
+    // UISlider horizontal — sourceado de EditSliderControl.mm: bar-color→minTrackTint (fill),
+    // track-color→maxTrackTint (track), thumb-color→thumbTint; from/to (aliases min/max); default max 255.
+    const min = Number(c.attributes.from ?? c.attributes.min ?? '0');
+    const max = Number(c.attributes.to ?? c.attributes.max ?? '255');
+    const raw = Number(val);
+    const range = max - min;
+    const frac = Number.isFinite(raw) && range > 0 ? Math.min(1, Math.max(0, (raw - min) / range)) : 0;
+    const pct = +(frac * 100).toFixed(1);
+    const track = xoneColorToCss(c.attributes['track-color']);
+    const bar = xoneColorToCss(c.attributes['bar-color']);
+    const thumb = xoneColorToCss(c.attributes['thumb-color']);
+    const trackStyle = track ? ` style="background:${track}"` : '';
+    const fillStyle = `width:${pct}%${bar ? `;background:${bar}` : ''}`;
+    const thumbStyle = `left:${pct}%${thumb ? `;background:${thumb}` : ''}`;
+    return wrap(`${label}<div class="xone-slider"><div class="xone-slider__track"${trackStyle}><div class="xone-slider__fill" style="${fillStyle}"></div></div><div class="xone-slider__thumb" style="${thumbStyle}"></div></div>`);
+  }
+  if (c.attributes.linkedto) {
+    // Combo/desplegable: linkedto → isMapColl (fiel a EditTextProperty.mm:423-433). Caja select con
+    // el valor actual + chevron ▾, en vez de input plano. El picker/lista NO se sirve (juicio de
+    // diseño); placeholder = tooltip/caption si no hay valor (mismo criterio que los inputs).
+    const shown = val || (placeholderText ? resolve(placeholderText) : '');
+    const dis = c.editable ? '' : ' data-disabled="true"';
+    return wrap(`${label}<div class="xone-select"${dis}><span class="xone-select__value">${esc(shown)}</span><span class="xone-select__arrow">▾</span></div>`);
+  }
+  switch (base) {
+    case 'B': {
+      const icon = xoneImgToCss(c.attributes.img, resolveImg, 'icon');
+      // Color del título = forecolor (no text-forecolor), fiel a EditButtonProperty.mm:406.
+      // Override sobre el color heredado del wrapper (como case 'L').
+      const fc = xoneColorToCss(c.attributes.forecolor);
+      const btnSty = fc ? ` style="color:${fc}"` : '';
+      // G12-bis: caption es el texto del botón cuando title está AUSENTE (title="" explícito
+      // sigue siendo botón sin texto). Mismo tratamiento resolve+esc que title.
+      const btnText = c.title !== undefined ? esc(title) : esc(resolve(c.attributes.caption ?? ''));
+      // Solo-icono (sin texto) → icono GRANDE y centrado (llena el botón); con texto → pequeño
+      // inline a la izquierda (F22). El botón centra su contenido (BASE_CSS flex).
+      const iconImg = icon
+        ? (btnText
+            ? `<img src="${esc(icon)}" alt="" style="height:1em;vertical-align:middle;margin-right:4px">`
+            : `<img src="${esc(icon)}" alt="" class="xone-btn-icon">`)
+        : '';
+      return wrap(`<button${ro}${btnSty}>${iconImg}${btnText}</button>`);
+    }
+    case 'L':
+    case 'TL': {
+      // El color del texto de un label es su `forecolor` (no `text-forecolor`, que es el color
+      // del texto ESCRITO de un input). Override sobre el color heredado del wrapper.
+      const fc = xoneColorToCss(c.attributes.forecolor);
+      const sty = fc ? ` style="color:${fc}"` : '';
+      const lbl = hasLabel ? `<label${sty}>${esc(title)}</label>` : '';
+      return wrap(`${lbl}<span${sty}>${esc(val)}</span>`);
+    }
+    case 'NC': {
+      // Switch por defecto del framework (XoneEditNCProperty → XoneMaterialSwitch): track rojo,
+      // thumb izquierda(off)/derecha(on). Estático: refleja el valor, sin interactividad.
+      const on = Number(val) ? '1' : '0';
+      return wrap(`${label}<span class="xone-switch" data-on="${on}"><span class="xone-switch__track"></span><span class="xone-switch__thumb"></span></span>`);
+    }
+    case 'N':
+    case 'TN': {
+      const nInput = `<input type="number" value="${esc(val)}"${ro}${ph}${eb}>`;
+      const nIcon = fieldTrailingIcon(c, resolveImg);
+      return wrap(`${label}${nIcon ? `<span class="xone-field-icon">${nInput}${nIcon}</span>` : nInput}`);
+    }
+    case 'X':
+      return wrap(`${label}<input type="password" value="${esc(val)}"${ro}${ph}${eb}>`);
+    case 'D':
+    case 'DT':
+    case 'TT': {
+      const dInput = `<input value="${esc(val)}"${ro}${ph}${eb}>`;
+      const dIcon = fieldTrailingIcon(c, resolveImg);
+      return wrap(`${label}${dIcon ? `<span class="xone-field-icon">${dInput}${dIcon}</span>` : dInput}`);
+    }
+    case 'AT': {
+      // Adjunto (T_ATTACHAMENT): campo imagen, no texto. editable → 📎 adjuntar (izq) + ✕ borrar
+      // (der); readonly/locked → sin iconos. Fiel a EditImageProperty.mm:1554-1574 (cámara oculta
+      // para AT; attach+delete visibles salvo readonly). Glifos: xone_img_att/delete son built-in
+      // del framework, no resolubles en el árbol de la app (mismo criterio que el ▾ del combo).
+      const attachIcons = c.editable
+        ? '<span class="xone-attach__att">📎</span><span class="xone-attach__del">✕</span>'
+        : '';
+      return wrap(`${label}<span class="xone-attach">${attachIcons}</span>`);
+    }
+    case 'IMG':
+    case 'PH': {
+      const imgSrc = xoneImgToCss(c.attributes.path, resolveImg, 'data') ?? xoneImgToCss(val, resolveImg, 'data');
+      const src = imgSrc ? ` src="${esc(imgSrc)}"` : '';
+      const fit = IMG_SCALE_TYPE_FIT[c.attributes['scale-type'] ?? ''];
+      const imgStyle = fit ? `width:100%;height:100%;object-fit:${fit}` : 'max-width:100%';
+      return wrap(`${label}<img alt="${esc(val || c.name)}"${src} style="${imgStyle}">`);
+    }
+    case 'DR':
+      return wrap(`${label}<div class="xone-vm">[firma] ${esc(c.name)}</div>`);
+    case 'WEB':
+      return wrap(`${label}<div class="xone-vm">[WebView] ${esc(val)}</div>`);
+    case 'Z': {
+      // Nº de columnas explícito: grid-columns → gallery-columns (atoi>0), fiel al conteo del
+      // oráculo XoneTableContent.mm:1316-1318 (cellWidth=gridWidth/N, :2000). `column` NO se
+      // usa: en el oráculo es un TRIGGER de gridview (:1094), no fuente de conteo. Sin atributo
+      // → clase .xone-grid (flex-wrap) como APROXIMACIÓN: el oráculo, para un gridview VERTICAL
+      // sin columnas, usa default 2 (:969), y el floor(gridWidth/cellWidth) (:2046) es solo para
+      // orientation=horizontal — ambos DIFERIDOS (ver roadmap). El caso real (Menu
+      // gallery-columns:3, materializado por F15) es exacto.
+      const cols = parseInt(c.attributes['grid-columns'] ?? c.attributes['gallery-columns'] ?? '', 10);
+      const hasCols = Number.isFinite(cols) && cols > 0;
+      // orientation=horizontal (fallback de grid-layout, fiel a XoneTableContent.mm:1320-1351):
+      // sin columnas explícitas → una sola fila con scroll horizontal (lineItemCount=1, scrollDirection
+      // Horizontal). Con gallery-columns>0 el oráculo haría grid de N filas scrolleando en horizontal
+      // → diferido (sin consumidor real); se queda con la ruta grid.
+      const horizontal = !hasCols && (c.attributes['grid-layout'] ?? c.attributes.orientation) === 'horizontal';
+      const gridStyle = hasCols
+        ? ` style="display:grid;grid-template-columns:repeat(${cols},minmax(0,1fr))"`
+        : '';
+      const ulClass = horizontal ? 'xone-grid xone-grid--h' : 'xone-grid';
+      const ul = (inner: string) => `<ul class="${ulClass}"${gridStyle}>${inner}</ul>`;
+      if (c.listRows) {
+        const cellBg = (i: number): string => {
+          const raw = i % 2 === 0 ? c.cellColors?.even : c.cellColors?.odd;
+          const css = raw ? xoneColorToCss(raw) : undefined;
+          return css ? ` style="background:${css}"` : '';
+        };
+        const items = c.listRows
+          .map((row, i) => `<li${cellBg(i)}>${row.groups
+            .map(g => renderChildren(g.childOrder, g.frames, g.controls, resolve, scale, parentPx, resolveImg, rowJustifyFor(g.attributes), rowAlignFor(g.attributes)))
+            .join('')}</li>`)
+          .join('');
+        return wrap(`${label}${ul(items)}`);
+      }
+      return wrap(`${label}${ul(`<li>[lista ${esc(c.attributes.contents ?? c.name)}]</li>`)}`);
+    }
+    case 'THTML':
+      return wrap(`${label}<div>${esc(val)}</div>`);
+    case 'T':
+    default:
+      if (multiline) return wrap(`${label}<textarea rows="${rows}"${ro}${ph}${eb}>${esc(val)}</textarea>`);
+      return wrap(`${label}<input value="${esc(val)}"${ro}${ph}${eb}>`);
+  }
+}
+
+const H_ALIGN_FLEX: Record<string, string> = { left: 'flex-start', center: 'center', right: 'flex-end' };
+
+/** G20 (Direction 2): valor de `justify-content` para las filas de un contenedor con align
+ *  horizontal. El contenedor conserva su `align-items:<h>` (para que un bypass sin `.xone-row`
+ *  viva — frame único, `.xone-row:has(>:only-child)` display:contents — siga posicionándose);
+ *  cada `.xone-row` REAL recibe además `align-self:stretch` (llena el ancho, overrideando el
+ *  align-items del padre solo para esa fila) + este `justify-content` (posiciona su contenido).
+ *  Componente horizontal de `attrs.align` (o `attrs['text-align']`, ya materializado por F15).
+ *  `undefined` si no hay align horizontal → filas en su default. */
+function rowJustifyFor(attrs: Record<string, string>): string | undefined {
+  const h = attrs.align !== undefined ? parseAlign(attrs.align).h : (attrs['text-align'] as string | undefined);
+  return h ? H_ALIGN_FLEX[h] : undefined;
+}
+
+const V_ALIGN_FLEX: Record<string, string> = { top: 'flex-start', center: 'center', bottom: 'flex-end' };
+
+/** Twin VERTICAL de rowJustifyFor. En XOne un `<frame>` tiene alineación horizontal Y vertical
+ *  (`align:h|v`). El componente vertical → `align-items` de las filas del contenedor, que centra
+ *  (o alinea arriba/abajo) las props DENTRO de la fila. El contenedor ya pasa a flex-column con
+ *  `justify-content:<v>` (alignToCss, centra el bloque de filas), pero cuando una prop alta —p.ej.
+ *  el título `height:100%` de la barra de cabecera— hace que la fila llene el frame, las props
+ *  cortas (iconos) quedaban pegadas arriba (`.xone-row` default `align-items:flex-start`); esto
+ *  las centra. `undefined` si no hay align vertical → filas en su default. */
+function rowAlignFor(attrs: Record<string, string>): string | undefined {
+  const v = attrs.align !== undefined ? parseAlign(attrs.align).v : undefined;
+  const a = v ? V_ALIGN_FLEX[v] : undefined;
+  // `top` → `flex-start` ya es el default de `.xone-row`; solo emitimos overrides reales
+  // (center/bottom) para no ensuciar la salida con una decl redundante.
+  return a === 'flex-start' ? undefined : a;
+}
+
+/** ¿Botón `B` solo-icono? (base B, `img` que resuelve, y SIN texto — title ausente/vacío y sin
+ *  caption). Misma semántica solo-icono que el caso B de renderControl (icon && !btnText, F21). */
+function isIconOnlyButton(c: UIControl): boolean {
+  if (c.type.replace(/\d+$/, '') !== 'B') return false;
+  if (!xoneImgToCss(c.attributes.img)) return false;
+  const hasText = !!c.title || !!(c.attributes.caption && c.attributes.caption.trim());
+  return !hasText;
+}
+
+/** Índice del control título (`TL`/`L`) si la fila es un app-bar: ≥2 items, TODOS controles,
+ *  EXACTAMENTE un `TL`/`L`, y todos los demás botones solo-icono. Si no, -1. */
+function appBarTitleIndex(row: ChildItem[]): number {
+  if (row.length < 2 || !row.every(it => it.it.kind === 'control')) return -1;
+  let idx = -1, count = 0;
+  row.forEach((it, i) => {
+    if (it.it.kind !== 'control') return;
+    const base = it.it.c.type.replace(/\d+$/, '');
+    if (base === 'TL' || base === 'L') { count++; idx = i; }
+  });
+  if (count !== 1) return -1;
+  return row.every((it, i) => i === idx || (it.it.kind === 'control' && isIconOnlyButton(it.it.c))) ? idx : -1;
+}
+
+function inline(
+  attrs: Record<string, string>, scale: number, container = false, overrides?: Record<string, string>, resolveImg?: ResolveImg,
+): string {
+  const decls = styleDeclsFromAttributes(attrs, scale, resolveImg);
+  // align de CONTENEDOR: la horizontal también posiciona a los hijos (iOS centra los
+  // controles del frame, no solo su texto). La vertical de F1 ya emite el flex completo
+  // (display+flex-direction+justify-content+align-items) y tiene prioridad — no duplicar.
+  if (container && decls['text-align'] && !decls['display']) {
+    const f = H_ALIGN_FLEX[decls['text-align']];
+    if (f) {
+      decls['display'] = 'flex';
+      decls['flex-direction'] = 'column';
+      decls['align-items'] = f;
+    }
+  }
+  if (overrides) Object.assign(decls, overrides);
+  const s = declsToInline(decls);
+  return s ? ` style="${s}"` : '';
+}
+
+function classAttr(base: string, attrs: Record<string, string>): string {
+  const cls = attrs.class ? `${base} ${attrs.class}` : base;
+  return `class="${esc(cls)}"`;
+}
+
+function esc(s: string): string {
+  return String(s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
