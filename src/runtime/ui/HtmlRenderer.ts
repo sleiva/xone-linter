@@ -60,6 +60,12 @@ body{font-family:sans-serif;font-size:17px;margin:0;padding:8px;background:#eee}
 .xone-field-icon>input{flex:1;min-width:0}
 .xone-field-icon__img{flex:none;width:16px;height:16px;object-fit:contain}
 .xone-attach{display:flex;align-items:center;justify-content:flex-end;gap:8px;min-height:24px}
+/* botones de acción del control de foto: flotan SOBRE la imagen, arriba a la derecha de
+   la caja del prop (EditImageProperty.mm:1657-1678 con frm=self.bounds :1068). El right
+   del cluster lo pone el renderer (8px con attach, 48px sin el). */
+.xone-prop[data-type="PH"]{position:relative}
+.xone-photo-actions{position:absolute;top:5px;display:flex;gap:8px}
+.xone-photo-actions__btn{flex:none;width:32px;height:32px;object-fit:contain;display:flex;align-items:center;justify-content:center;font-size:20px;line-height:1}
 .xone-vm{border:1px dashed #999;padding:8px;color:#666;font-size:12px}
 /* marco del envoltorio de pestañas con box-shadow:inset, NO con border: con el
    box-sizing:border-box de más abajo un border lateral descontaba 2px de ancho (y 2 de
@@ -429,6 +435,51 @@ function buttonShowsText(attrs: Record<string, string>): boolean {
   return (Number.isNaN(n) ? 0 : n) !== 0;
 }
 
+/** Botones de acción del control de foto (`type="PH"`), fiel a `iXonev2/EditImageProperty.mm`.
+ *
+ *  Creación `:133-251`, gateada a `T_PHOTO || T_ATTACHAMENT` ⇒ `type="IMG"` NO lleva
+ *  botones. Precedencia de la imagen de cámara: built-in `xone_img_picture.png` (`:156`),
+ *  pisado por `img` (`:161`) y por `img-camera` (`:180`) ⇒ `img-camera` > `img` > built-in;
+ *  adjuntar `img-att` (`:204`), borrar `img-delete` (`:229`).
+ *
+ *  Layout `:1631-1678` con `frm = self.bounds` (`:1068`), botones de 32×32 en `y=5` y un
+ *  acumulador `xBOfsset` que arranca en 120 y baja de 40 en 40:
+ *
+ *    cámara   → x = W-120                                      (offset derecho 88)
+ *    adjuntar → solo si existe el atributo `attach` (`:1666`)   (offset derecho 48)
+ *    borrar   → x = W-40 con attach / W-80 sin attach           (offset derecho 8 / 48)
+ *
+ *  Se emite como clúster flex con `gap:8px` anclado a la derecha: `right` = 8px con
+ *  `attach`, 48px sin él — reproduce los tres offsets exactos. Constantes en puntos UIKit
+ *  SIN escalar (no pasan por appScaleFactor* ni son unidades `p`) ⇒ px crudos.
+ *  Device-medido (@3x, EspecialBasicos pág. 2): ink de cámara 25.0×20.0 y de ✕ 18.7×18.7 =
+ *  `bt_camera`/`bt_Delete` (128×128) en aspect-fit sobre 32×32; paso entre centros 40.2.
+ *
+ *  `readonly` oculta los tres (`:1684-1701` y `:710-725`) → gate `c.editable`. El valor
+ *  vacío NO los oculta (`:744` solo oculta rotar) — verificado en device con `MAP_FOTO`.
+ *  Sin imagen resoluble (los built-in del framework no están en el árbol de la app) →
+ *  glifo de respaldo, mismo criterio que el campo adjunto AT. `rotate-button` (`:254`) y
+ *  `img-*-sel` (estado pulsado): sin consumidor real, diferidos. */
+function photoActions(c: UIControl, resolveImg?: ResolveImg): string {
+  if (!c.editable) return '';
+  const a = c.attributes;
+  // Primer nombre que RESUELVE, no el primero presente: el oráculo solo sustituye la
+  // imagen si el fichero carga (`if (tmpimage)`, :165/:185), así que un `img-camera` roto
+  // cae a `img` y de ahí al built-in (aquí, al glifo).
+  const btn = (names: (string | undefined)[], glyph: string): string => {
+    for (const name of names) {
+      const src = xoneImgToCss(name, resolveImg, 'icon');
+      if (src) return `<img class="xone-photo-actions__btn" src="${esc(src)}" alt="">`;
+    }
+    return `<span class="xone-photo-actions__btn">${glyph}</span>`;
+  };
+  const hasAttach = a.attach !== undefined;
+  const buttons = btn([a['img-camera'], a.img], '📷')
+    + (hasAttach ? btn([a['img-att']], '📎') : '')
+    + btn([a['img-delete']], '✕');
+  return `<span class="xone-photo-actions" style="right:${hasAttach ? 8 : 48}px">${buttons}</span>`;
+}
+
 function renderControl(
   c: UIControl, resolve: Resolve, scale: number, parentPx: number | undefined, overrides?: Record<string, string>,
   resolveImg?: ResolveImg,
@@ -617,7 +668,11 @@ function renderControl(
       const src = imgSrc ? ` src="${esc(imgSrc)}"` : '';
       const fit = IMG_SCALE_TYPE_FIT[c.attributes['scale-type'] ?? ''];
       const imgStyle = fit ? `width:100%;height:100%;object-fit:${fit}` : 'max-width:100%';
-      return wrap(`${label}<img alt="${esc(val || c.name)}"${src} style="${imgStyle}">`);
+      const img = `<img alt="${esc(val || c.name)}"${src} style="${imgStyle}">`;
+      // Solo PH lleva botones de acción: la creación del oráculo está gateada a
+      // T_PHOTO/T_ATTACHAMENT (EditImageProperty.mm:133) ⇒ IMG queda como estaba.
+      const actions = base === 'PH' ? photoActions(c, resolveImg) : '';
+      return wrap(`${label}${img}${actions}`);
     }
     case 'DR':
       return wrap(`${label}<div class="xone-vm">[firma] ${esc(c.name)}</div>`);
