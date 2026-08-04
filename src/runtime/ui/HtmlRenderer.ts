@@ -412,6 +412,18 @@ function fieldTrailingIcon(c: UIControl, resolveImg?: ResolveImg): string {
   return `<img class="xone-field-icon__img" src="${esc(src)}" alt="">`;
 }
 
+/** ¿El botón muestra su texto? Fiel a `labelWidthPresent` de EditButtonProperty.mm:
+ *  `:85` ausente ⇒ YES; `:361` presente ⇒ `(0 != labelwidth.intValue)`. `intValue` es
+ *  semántica `atoi` (entero inicial; no numérico ⇒ 0), así que `""`/`"abc"` suprimen
+ *  igual que `"0"`. Sin `labelWidthPresent` no hay etiqueta NI título de botón
+ *  (`:566-574`, `:294-297`) ⇒ botón sin texto. */
+function buttonShowsText(attrs: Record<string, string>): boolean {
+  const raw = attrs.labelwidth;
+  if (raw === undefined) return true;
+  const n = parseInt(raw, 10);
+  return (Number.isNaN(n) ? 0 : n) !== 0;
+}
+
 function renderControl(
   c: UIControl, resolve: Resolve, scale: number, parentPx: number | undefined, overrides?: Record<string, string>,
   resolveImg?: ResolveImg,
@@ -517,7 +529,19 @@ function renderControl(
       const fc = xoneColorToCss(c.attributes.forecolor);
       // G12-bis: caption es el texto del botón cuando title está AUSENTE (title="" explícito
       // sigue siendo botón sin texto). Mismo tratamiento resolve+esc que title.
-      const btnText = c.title !== undefined ? esc(title) : esc(resolve(c.attributes.caption ?? ''));
+      // `labelwidth="0"` ⇒ el botón NO muestra texto: el título de un botón XOne vive en una
+      // etiqueta aparte (`uiLabelField`) que solo se añade si `labelWidthPresent`
+      // (EditButtonProperty.mm:361 `labelWidthPresent = (0 != labelwidth.intValue)`; `:566-574`
+      // rama sin-imagen else → `setTitle:EMPTY` + `uiLabelField = nil`; `:577+` rama con-imagen
+      // solo añade la etiqueta si está presente, y el título propio del botón ya se vacía en
+      // `:294-297`; `:1274` solo asigna el texto de la etiqueta si está presente). Atributo
+      // AUSENTE ⇒ presente (`:85` default YES). `intValue` = semántica atoi: no numérico ⇒ 0 ⇒
+      // suprime. DEVICE-VERIFICADO en `EspecialChat.MAP_NUEVO_CHAT` (labelwidth="0" + title
+      // "Nuevo chat" + img): el device pinta SOLO el icono. Sin texto, un botón con imagen cae
+      // por la rama solo-icono de abajo — que es justo lo que hace el device.
+      const btnText = buttonShowsText(c.attributes)
+        ? (c.title !== undefined ? esc(title) : esc(resolve(c.attributes.caption ?? '')))
+        : '';
       // La imagen de un botón ocupa TODA su caja, con el título CENTRADO encima —
       // fiel a EditButtonProperty.mm: `uiPropButton.frame = self.bounds` (:1094) +
       // contentHorizontal/VerticalAlignment = Fill (:282-283, :1085-1087) + `setImage:` con
