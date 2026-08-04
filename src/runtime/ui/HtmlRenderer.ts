@@ -515,17 +515,31 @@ function renderControl(
       // Color del título = forecolor (no text-forecolor), fiel a EditButtonProperty.mm:406.
       // Override sobre el color heredado del wrapper (como case 'L').
       const fc = xoneColorToCss(c.attributes.forecolor);
-      const btnSty = fc ? ` style="color:${fc}"` : '';
       // G12-bis: caption es el texto del botón cuando title está AUSENTE (title="" explícito
       // sigue siendo botón sin texto). Mismo tratamiento resolve+esc que title.
       const btnText = c.title !== undefined ? esc(title) : esc(resolve(c.attributes.caption ?? ''));
-      // Solo-icono (sin texto) → icono GRANDE y centrado (llena el botón); con texto → pequeño
-      // inline a la izquierda (F22). El botón centra su contenido (BASE_CSS flex).
-      const iconImg = icon
-        ? (btnText
-            ? `<img src="${esc(icon)}" alt="" style="height:1em;vertical-align:middle;margin-right:4px">`
-            : `<img src="${esc(icon)}" alt="" class="xone-btn-icon">`)
+      // La imagen de un botón ocupa TODA su caja, con el título CENTRADO encima —
+      // fiel a EditButtonProperty.mm: `uiPropButton.frame = self.bounds` (:1094) +
+      // contentHorizontal/VerticalAlignment = Fill (:282-283, :1085-1087) + `setImage:` con
+      // `setTitle:EMPTY` (:294-297, EMPTY=@"" en Constants.h:87) → la imagen es el ÚNICO
+      // contenido del botón, y el título vive en una etiqueta aparte centrada (:528-532/:577+,
+      // vAlignment/hAlignment=Center :155-157) que aquí es el propio texto del <button>
+      // (BASE_CSS ya lo centra en ambos ejes). `keep-aspect-ratio="true"` → AspectFit
+      // (:287-288) = `contain`; sin él → ScaleToFill (:291) = `100% 100%` (estira).
+      // DEVICE-VERIFICADO (EspecialBasicos footer, @3x): next.png 180x32 → flecha escalada
+      // x2.78 / y4.77 (no uniforme ⇒ estirada) y "Siguiente" centrado en la caja del prop.
+      // Comillas SIMPLES en url() como en styleMap.ts:151-158 (dobles anidadas truncan style="…").
+      const bgSize = c.attributes['keep-aspect-ratio'] === 'true' ? 'contain' : '100% 100%';
+      const bgImg = icon && btnText
+        ? `background-image:url('${icon}');background-repeat:no-repeat;background-position:center;background-size:${bgSize}`
         : '';
+      const btnDecls = [fc ? `color:${fc}` : '', bgImg].filter(Boolean).join(';');
+      const btnSty = btnDecls ? ` style="${btnDecls}"` : '';
+      // Solo-icono (sin texto) → el icono sigue como <img class="xone-btn-icon">: aporta la
+      // altura intrínseca a los botones sin `height` (btsalirsuper, btmenuicon), que un fondo
+      // colapsaría a 0. En los consumidores reales la caja y la imagen son cuadradas
+      // (menufijo 84x84 / basicos.png 76x76) ⇒ contain == estirar, delta observable cero.
+      const iconImg = icon && !btnText ? `<img src="${esc(icon)}" alt="" class="xone-btn-icon">` : '';
       return wrap(`<button${ro}${btnSty}>${iconImg}${btnText}</button>`);
     }
     case 'L':
