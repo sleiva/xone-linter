@@ -507,7 +507,15 @@ function renderControl(
   const labelWidth = Number.isFinite(lwRaw) ? lwRaw : 10;
   // El title de un botón (B) es su TEXTO, no una etiqueta: nunca adopta el modo
   // label-en-línea (que cambiaría el eje del flex y le impediría llenar su caja).
-  const hasLabel = base !== 'B' && Boolean(c.title) && labelWidth > 0;
+  // IMG/PH tampoco pintan etiqueta: la etiqueta nace con `initWithFrame:CGRectZero`
+  // (EditPropertyControl.mm:420) y solo la dimensiona el `layoutSubviews` de la clase BASE
+  // (`:1625-1792`), pero `EditImageProperty` lo SOBRESCRIBE sin llamar a super (`:1064`) y
+  // su rama `T_IMG || T_PHOTO || T_VIDEO` (`:1581-1705`) nunca la toca ⇒ mide 0×0
+  // (invisible y sin ocupar sitio). La rama de AT sí la dimensiona (`:1530-1534`), así que
+  // el campo adjunto conserva su etiqueta — y el device confirma las dos cosas.
+  // `VD` (misma rama del oráculo) queda fuera: hoy no tiene `case` propio y cae al
+  // `default` (input de texto), donde quitar la etiqueta no acerca nada al device.
+  const hasLabel = base !== 'B' && !['IMG', 'PH'].includes(base) && Boolean(c.title) && labelWidth > 0;
   // En L/TL el título ES el contenido (etiqueta de solo lectura): va como bloque
   // completo, no en línea con ancho fijo — el hlabel a 10ch lo truncaba/envolvía
   // (visto en device: "Version App: 0.0.2.604" completo, no en 10ch). El gate
