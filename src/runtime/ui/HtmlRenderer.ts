@@ -61,7 +61,12 @@ body{font-family:sans-serif;font-size:17px;margin:0;padding:8px;background:#eee}
 .xone-field-icon__img{flex:none;width:16px;height:16px;object-fit:contain}
 .xone-attach{display:flex;align-items:center;justify-content:flex-end;gap:8px;min-height:24px}
 .xone-vm{border:1px dashed #999;padding:8px;color:#666;font-size:12px}
-.xone-tabs{border:1px solid #bbb;margin:4px 0}
+/* marco del envoltorio de pestañas con box-shadow:inset, NO con border: con el
+   box-sizing:border-box de más abajo un border lateral descontaba 2px de ancho (y 2 de
+   alto) a TODO lo de dentro → una fila que suma justo el 100% (420px) no cabía en 418 y
+   el flex-wrap de .xone-row la partía en dos líneas (medido en el navegador; el device
+   no aplica ningún inset). box-shadow no participa en el layout. */
+.xone-tabs{box-shadow:inset 0 0 0 1px #bbb;margin:4px 0}
 .xone-tabbar{display:flex;flex-wrap:wrap;gap:2px;background:#e3e3e3;padding:2px}
 .xone-tab{font-size:11px;padding:2px 8px;background:#fff;border:1px solid #ccc;border-radius:4px 4px 0 0}
 .xone-tab--active{font-weight:bold;border-bottom:2px solid #1565C0}
