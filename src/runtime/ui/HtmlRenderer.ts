@@ -572,7 +572,16 @@ function renderControl(
   // el campo adjunto conserva su etiqueta — y el device confirma las dos cosas.
   // `VD` entra en el mismo gate desde el corte #15 (antes caía al `default` como input de
   // texto, donde quitarle la etiqueta no acercaba nada al device; ahora tiene `case` propio).
-  const hasLabel = base !== 'B' && !['IMG', 'PH', 'VD'].includes(base) && Boolean(c.title) && labelWidth > 0;
+  // `WEB` también, pero por un mecanismo DISTINTO: lo atiende `EditWebProperty`
+  // (`EditPropertyFactory.mm:172-177`), cuyo `layoutSubviews` SÍ llama a super (`:440`) y por
+  // tanto la base SÍ dimensiona la etiqueta — pero acto seguido pone
+  // `webview.frame = self.bounds` (`:444`/`:454`, incondicional) y la web view se añade
+  // DESPUÉS de la etiqueta (`:797` frente a `EditPropertyControl.mm:1132`/`:1180`), así que la
+  // TAPA. Mismo observable, otra razón. (`THTML` tampoco la pintaría — sus ramas de
+  // `EditImageProperty.layoutSubviews` hacen `return` antes de dimensionarla — pero sus 2
+  // consumidores llevan `labelwidth:0` ⇒ delta cero, sin caso que lo ejercite.)
+  const hasLabel = base !== 'B' && !['IMG', 'PH', 'VD', 'WEB'].includes(base)
+    && Boolean(c.title) && labelWidth > 0;
   // En L/TL el título ES el contenido (etiqueta de solo lectura): va como bloque
   // completo, no en línea con ancho fijo — el hlabel a 10ch lo truncaba/envolvía
   // (visto en device: "Version App: 0.0.2.604" completo, no en 10ch). El gate
