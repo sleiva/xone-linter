@@ -74,6 +74,10 @@ body{font-family:sans-serif;font-size:17px;margin:0;padding:8px;background:#eee}
    (web view) a toda la caja del prop; aquí, caja oscura con el glifo de reproducir. */
 .xone-video{width:100%;height:100%;min-height:32px;background:#111;display:flex;align-items:center;justify-content:center;color:#fff}
 .xone-video__play{font-size:28px;opacity:.85}
+/* Lienzo del control de dibujo (DR): llena la caja entera, y su imagen de fondo se ESTIRA
+   (contentMode por defecto de la UIImageView del oráculo, sin cascada de aspect). */
+.xone-draw{flex:1 1 auto;width:100%;height:100%;display:block;overflow:hidden}
+.xone-draw__bk{width:100%;height:100%;object-fit:fill;display:block}
 .xone-vm{border:1px dashed #999;padding:8px;color:#666;font-size:12px}
 /* marco del envoltorio de pestañas con box-shadow:inset, NO con border: con el
    box-sizing:border-box de más abajo un border lateral descontaba 2px de ancho (y 2 de
@@ -594,23 +598,28 @@ function renderControl(
   const labelWidth = Number.isFinite(lwRaw) ? lwRaw : 10;
   // El title de un botón (B) es su TEXTO, no una etiqueta: nunca adopta el modo
   // label-en-línea (que cambiaría el eje del flex y le impediría llenar su caja).
-  // IMG/PH tampoco pintan etiqueta: la etiqueta nace con `initWithFrame:CGRectZero`
-  // (EditPropertyControl.mm:420) y solo la dimensiona el `layoutSubviews` de la clase BASE
-  // (`:1625-1792`), pero `EditImageProperty` lo SOBRESCRIBE sin llamar a super (`:1064`) y
-  // su rama `T_IMG || T_PHOTO || T_VIDEO` (`:1581-1705`) nunca la toca ⇒ mide 0×0
-  // (invisible y sin ocupar sitio). La rama de AT sí la dimensiona (`:1530-1534`), así que
-  // el campo adjunto conserva su etiqueta — y el device confirma las dos cosas.
-  // `VD` entra en el mismo gate desde el corte #15 (antes caía al `default` como input de
-  // texto, donde quitarle la etiqueta no acercaba nada al device; ahora tiene `case` propio).
-  // `WEB` también, pero por un mecanismo DISTINTO: lo atiende `EditWebProperty`
-  // (`EditPropertyFactory.mm:172-177`), cuyo `layoutSubviews` SÍ llama a super (`:440`) y por
-  // tanto la base SÍ dimensiona la etiqueta — pero acto seguido pone
-  // `webview.frame = self.bounds` (`:444`/`:454`, incondicional) y la web view se añade
-  // DESPUÉS de la etiqueta (`:797` frente a `EditPropertyControl.mm:1132`/`:1180`), así que la
-  // TAPA. Mismo observable, otra razón. (`THTML` tampoco la pintaría — sus ramas de
-  // `EditImageProperty.layoutSubviews` hacen `return` antes de dimensionarla — pero sus 2
-  // consumidores llevan `labelwidth:0` ⇒ delta cero, sin caso que lo ejercite.)
-  const hasLabel = base !== 'B' && !['IMG', 'PH', 'VD', 'WEB'].includes(base)
+  //
+  // ★★ QUIÉN PINTA ETIQUETA Y QUIÉN NO — el mecanismo REAL, unificado (corte #20): la etiqueta
+  // la crea el `init` de la base (`EditPropertyControl.mm:420`), recibe su texto del `title`
+  // (`:760`/`:774`) y recibe un frame en el `layoutSubviews` de la base (`:1789`)… pero sólo se
+  // VE si la clase concreta la METE EN EL ÁRBOL DE VISTAS. En todo el framework hay
+  // exactamente TRES `addSubview:self.uiLabelField`:
+  //    · `EditPropertyControl.mm:1132` → `T_CHECK` (NC)   y   `:1180` → `T_LABEL` (L/TL)
+  //    · `EditTextProperty.mm:383`     → los tipos de texto y todas sus subclases (combos,
+  //                                      fechas… que heredan de ella)
+  //    · `EditImageProperty`           → `if (self.isLabeled)`, o sea SOLO la rama de `AT`
+  // `EditButtonProperty`, `EditWebProperty` y `EditSignControl` no la añaden NUNCA ⇒ `IMG`,
+  // `PH`, `VD` (EditImageProperty fuera de la rama AT), `WEB` y `DR` no pintan etiqueta, y `AT`
+  // sí la conserva. Device-verificado en los cinco casos a lo largo de los cortes #12, #15,
+  // #16 y #20.
+  //
+  // CORRECCIÓN del corte #16: allí se citó que la web view TAPA la etiqueta
+  // (`webview.frame = self.bounds` + orden de subvistas). El observable y el fix eran correctos,
+  // pero el mecanismo no: `EditWebProperty` tampoco mete la etiqueta en el árbol. Lo destapó el
+  // `DR`, cuyo lienzo es TRANSPARENTE y aun así no deja ver ninguna etiqueta en el device.
+  // (`THTML` tampoco la pintaría, pero sus 2 consumidores llevan `labelwidth:0` ⇒ delta cero,
+  // sin caso que lo ejercite.)
+  const hasLabel = base !== 'B' && !['IMG', 'PH', 'VD', 'WEB', 'DR'].includes(base)
     && Boolean(c.title) && labelWidth > 0;
   // En L/TL el título ES el contenido (etiqueta de solo lectura): va como bloque
   // completo, no en línea con ancho fijo — el hlabel a 10ch lo truncaba/envolvía
@@ -812,8 +821,24 @@ function renderControl(
       const surface = val ? '<div class="xone-video"><span class="xone-video__play">▶</span></div>' : '';
       return wrap(`${label}${surface}${photoActions(c, resolveImg)}`);
     }
-    case 'DR':
-      return wrap(`${label}<div class="xone-vm">[firma] ${esc(c.name)}</div>`);
+    case 'DR': {
+      // Control de dibujo/firma dedicado — `EditSignControl` (`EditPropertyFactory.mm:147-151`).
+      // `buildControl` (`:57-135`) monta un scroll con una `UIImageView` de fondo y un
+      // `SketchView` transparente encima, y NADA más (ni botones ni barra: los 3 iconos que se
+      // ven en `EspecialBasicosPlus` son props `B` de otro frame). `layoutSubviews` (`:167-192`)
+      // pone las dos vistas a `self.bounds` INCONDICIONALMENTE ⇒ el lienzo llena la caja.
+      // La imagen la pinta una `UIImageView` con su `contentMode` por defecto (`ScaleToFill`)
+      // ⇒ **se estira**, sin la cascada de aspect de `EditImageProperty` (corte #13).
+      // El `scribble` se añade DESPUÉS del `backgroundView` (`:83-84`) y su fondo es el
+      // `bgcolor` (`:101-102`) ⇒ un bgcolor opaco **tapa la imagen**: device-verificado en los
+      // dos consumidores (BasicosPlus pinta el color tostado sin logo; Refresh, cuyo campo de
+      // color está vacío, pinta el logo).
+      const bk = xoneColorToCss(c.attributes.bgcolor)
+        ? undefined
+        : xoneImgToCss(c.attributes.img, resolveImg, 'icon');
+      const bkImg = bk ? `<img src="${esc(bk)}" alt="" class="xone-draw__bk">` : '';
+      return wrap(`${label}<span class="xone-draw">${bkImg}</span>`);
+    }
     case 'WEB':
       return wrap(`${label}<div class="xone-vm">[WebView] ${esc(val)}</div>`);
     case 'Z': {
