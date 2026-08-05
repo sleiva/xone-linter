@@ -379,19 +379,48 @@ function renderChildren(
  *  su contenedor recortando/estirando por aspecto, no encogen como `max-width:100%`). */
 const IMG_SCALE_TYPE_FIT: Record<string, string> = { center_crop: 'cover', fit_xy: 'fill' };
 
+/** ¿El prop declara una altura REAL? El gate no es la presencia cruda del attr: `height`
+ *  inválido/sentinela sin resolución estática (`-1`→auto, vacío, basura) equivale a SIN
+ *  altura — se comprueba con `xoneLengthToCss` (mismo parser que usa el resto del renderer)
+ *  y se exige un valor DISTINTO de `auto`/`undefined`; `xheight` no es un atributo del
+ *  parser, no aplica. */
+function hasEffectiveHeight(attrs: Record<string, string>, scale: number): boolean {
+  const height = xoneLengthToCss(attrs.height, scale);
+  return height !== undefined && height !== 'auto';
+}
+
 /** Override `height:100%` del WRAPPER (`.xone-prop`) para que el `<img>` al 100%/100% tenga
- *  una caja real que llenar — SOLO si el prop no declara ya su propia altura ("height activo").
- *  El gate no es la presencia cruda del attr: `height` inválido/sentinela sin resolución
- *  estática (`-1`→auto, vacío, basura) equivale a SIN altura real — se comprueba con
- *  `xoneLengthToCss` (mismo parser que usa el resto del renderer) y se exige un valor
- *  DISTINTO de `auto`/`undefined`; `xheight` no es un atributo del parser, no aplica. Claves
+ *  una caja real que llenar — SOLO si el prop no declara ya su propia altura. Claves
  *  distintas de `verticalMarginOverride` (`margin-top`/`margin-bottom`) → mergeable sin pisar. */
 function imgFillOverride(base: string, attrs: Record<string, string>, scale: number): Record<string, string> | undefined {
   if (base !== 'IMG' && base !== 'PH') return undefined;
   if (!IMG_SCALE_TYPE_FIT[attrs['scale-type'] ?? '']) return undefined;
-  const height = xoneLengthToCss(attrs.height, scale);
-  if (height !== undefined && height !== 'auto') return undefined;
+  if (hasEffectiveHeight(attrs, scale)) return undefined;
   return { height: '100%' };
+}
+
+/** `object-fit` del `<img>` de un control IMG/PH, fiel a la cascada de `contentMode` del
+ *  oráculo (`EditImageProperty.mm:142-149` construcción PH/AT, `:472-478` construcción IMG,
+ *  `:779-785` en cada `setTextValue` — las tres idénticas):
+ *
+ *    ScaleToFill → AspectFit si `keepsAspectRatio` → AspectFill si además
+ *    `img-aspect-ratio="fill"`   ⇒   fill → contain → cover
+ *
+ *  ★ El DEFAULT de `keepsAspectRatio` depende del TIPO: **YES** para PH/AT (`:137`) y **NO**
+ *  para IMG (`:465`, igual que el default general de `buildCommonAttributes`,
+ *  `EditPropertyControl.mm:553-555`). Device-medido: el logo de un IMG sale ESTIRADO
+ *  (escalas x/y 1.61 y 3.04 sobre la misma imagen) y la foto de un PH mantiene su aspecto.
+ *
+ *  `scale-type` conserva la precedencia que le dio la fase 52. Divergencia anotada: en iOS
+ *  el control de formulario NO lee `scale-type` (solo la ruta de CELDA, `XoneRecord.mm:2378`,
+ *  donde `center_crop` recorta a la celda ⇒ `cover`), y `fit_xy` no lo lee nadie. */
+function imageFit(base: string, attrs: Record<string, string>): string {
+  const scaleFit = IMG_SCALE_TYPE_FIT[attrs['scale-type'] ?? ''];
+  if (scaleFit) return scaleFit;
+  const raw = attrs['keep-aspect-ratio'];
+  const keeps = raw !== undefined ? raw === 'true' : base === 'PH';
+  if (!keeps) return 'fill';
+  return attrs['img-aspect-ratio'] === 'fill' ? 'cover' : 'contain';
 }
 
 function formatDateValue(value: unknown, base: string): string | undefined {
@@ -673,10 +702,20 @@ function renderControl(
     case 'IMG':
     case 'PH': {
       const imgSrc = xoneImgToCss(c.attributes.path, resolveImg, 'data') ?? xoneImgToCss(val, resolveImg, 'data');
-      const src = imgSrc ? ` src="${esc(imgSrc)}"` : '';
-      const fit = IMG_SCALE_TYPE_FIT[c.attributes['scale-type'] ?? ''];
-      const imgStyle = fit ? `width:100%;height:100%;object-fit:${fit}` : 'max-width:100%';
-      const img = `<img alt="${esc(val || c.name)}"${src} style="${imgStyle}">`;
+      // La vista de imagen ocupa TODA la caja del prop (EditImageProperty.mm:1629 con
+      // xOfsset/yOfsset a 0 y frm=self.bounds) y el encaje lo pone el contentMode. Solo se
+      // aplica con una caja de altura real: sin ella el oráculo usa el alto NATURAL de la
+      // imagen (getPropHeight → downloadHeight, :1755-1775), que en CSS es lo que ya da
+      // `max-width:100%` — reproducir el aplastado horizontal exigiría el tamaño natural
+      // (diferido, sin evidencia de device).
+      const boxed = hasEffectiveHeight(c.attributes, scale)
+        || Boolean(IMG_SCALE_TYPE_FIT[c.attributes['scale-type'] ?? '']);
+      const imgStyle = boxed
+        ? `width:100%;height:100%;object-fit:${imageFit(base, c.attributes)}`
+        : 'max-width:100%';
+      // Sin imagen resoluble el oráculo deja la caja VACÍA (`:751-759` image = nil + return);
+      // emitir un `<img>` sin `src` pintaba el icono de imagen rota con el texto alternativo.
+      const img = imgSrc ? `<img alt="${esc(val || c.name)}" src="${esc(imgSrc)}" style="${imgStyle}">` : '';
       // Solo PH lleva botones de acción: la creación del oráculo está gateada a
       // T_PHOTO/T_ATTACHAMENT (EditImageProperty.mm:133) ⇒ IMG queda como estaba.
       const actions = base === 'PH' ? photoActions(c, resolveImg) : '';
