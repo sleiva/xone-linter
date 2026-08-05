@@ -56,9 +56,12 @@ body{font-family:sans-serif;font-size:17px;margin:0;padding:8px;background:#eee}
 .xone-slider__track{position:absolute;top:50%;left:0;right:0;transform:translateY(-50%);height:3px;border-radius:2px;background:#C7C7CC;overflow:hidden}
 .xone-slider__fill{height:100%;background:#007AFF}
 .xone-slider__thumb{position:absolute;top:50%;width:20px;height:20px;border-radius:50%;background:#FFFFFF;box-shadow:0 1px 3px rgba(0,0,0,.4);transform:translate(-50%,-50%)}
-.xone-select{display:flex;align-items:center;justify-content:space-between;gap:4px;border:1px solid #bbb;padding:2px 6px;background:#fff}
+/* El campo del combo llena su caja como cualquier control (corte #21: antes se quedaba del
+   tamaño de su contenido, 25.6pt donde el device da 293) y el icono del desplegable es su
+   HERMANO, con su propio ancho, no un glifo dentro de la caja. */
+.xone-select{display:flex;align-items:center;gap:4px;border:1px solid #bbb;padding:2px 6px;background:#fff;flex:1 1 auto;width:100%;box-sizing:border-box;min-width:0}
 .xone-select__value{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.xone-select__arrow{color:#666;font-size:10px;flex:none}
+.xone-select__spinner{flex:none;object-fit:fill;align-self:center;color:#666;font-size:10px}
 .xone-select[data-disabled="true"]{opacity:.6}
 .xone-field-icon{display:flex;align-items:center;gap:4px}
 .xone-field-icon>input{flex:1;min-width:0}
@@ -695,11 +698,42 @@ function renderControl(
   }
   if (c.attributes.linkedto) {
     // Combo/desplegable: linkedto → isMapColl (fiel a EditTextProperty.mm:423-433). Caja select con
-    // el valor actual + chevron ▾, en vez de input plano. El picker/lista NO se sirve (juicio de
-    // diseño); placeholder = tooltip/caption si no hay valor (mismo criterio que los inputs).
+    // el valor actual, en vez de input plano. El picker/lista NO se sirve (juicio de diseño);
+    // placeholder = tooltip/caption si no hay valor (mismo criterio que los inputs).
+    //
+    // ★ El icono del desplegable va FUERA de la caja del campo (corte #21): el oráculo REDUCE el
+    // ancho del campo en `img-width × appScaleFactorWidth` (`:1441-1443`) y coloca el botón en
+    // `campo.right + 2` (`:1470`), con tamaño `img-width × scaleW` × `min(img-height × scaleH,
+    // alto de la fila)` y centrado vertical (`:1483-1494`). Y es una IMAGEN real:
+    // `xone_img_arrow_down.png` con override `img-spinner` cuando `showinline="true"` (`:436-445`),
+    // o `xone_img_mapcol.png` con override `img-search` si no (`:447-456`) — la lupa que el device
+    // pinta en la fila "Combo COL" de `EspecialRefresh`. Sin editar ⇒ `CGRectZero` (`:1506`).
+    // Device-medido: el campo del combo es 29.3 pt más estrecho que el campo normal de al lado
+    // (= 48p × 0.6111) y la tinta del icono mide 22.0 pt, los 22.4 que predice `bt_Arrow_down.png`
+    // (128×128, ink 98×98) en una caja de 29.3.
     const shown = val || (placeholderText ? resolve(placeholderText) : '');
     const dis = c.editable ? '' : ' data-disabled="true"';
-    return wrap(`${label}<div class="xone-select"${dis}><span class="xone-select__value">${esc(shown)}</span><span class="xone-select__arrow">▾</span></div>`);
+    const inline = c.attributes.showinline === 'true';
+    let spinner = '';
+    if (c.editable) {
+      const iconAttr = inline ? c.attributes['img-spinner'] : c.attributes['img-search'];
+      const icon = xoneImgToCss(iconAttr, resolveImg, 'icon');
+      const w = xoneLengthToCss(c.attributes['img-width'], scale.w);
+      const hRaw = xoneLengthToCss(c.attributes['img-height'], scale.h);
+      // El alto del icono lo acota el de la FILA cuando el prop declara alto (`:1485`). Se toma
+      // el mismo px que emite el CSS del prop (`xoneLengthToCss`) para no arrastrar el redondeo
+      // a entero de `resolveHeightPx`, que dejaba el icono medio píxel más alto que su caja.
+      const ownH = xoneLengthToCss(c.attributes.height, scale.h);
+      const rowH = ownH?.endsWith('px') ? parseFloat(ownH) : resolveHeightPx(c.attributes.height, parentPx, scale);
+      const hPx = hRaw ? parseFloat(hRaw) : undefined;
+      const h = hPx !== undefined && rowH !== undefined && hPx > rowH ? `${rowH}px` : hRaw;
+      const size = [w ? `width:${w}` : '', h ? `height:${h}` : ''].filter(Boolean).join(';');
+      const sty = size ? ` style="${size}"` : '';
+      spinner = icon
+        ? `<img src="${esc(icon)}" alt="" class="xone-select__spinner"${sty}>`
+        : `<span class="xone-select__spinner">${inline ? '▾' : '🔍'}</span>`;
+    }
+    return wrap(`${label}<div class="xone-select"${dis}><span class="xone-select__value">${esc(shown)}</span></div>${spinner}`);
   }
   switch (base) {
     case 'B': {
