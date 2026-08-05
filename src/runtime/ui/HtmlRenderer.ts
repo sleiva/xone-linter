@@ -63,7 +63,7 @@ body{font-family:sans-serif;font-size:17px;margin:0;padding:8px;background:#eee}
 /* botones de acción del control de foto: flotan SOBRE la imagen, arriba a la derecha de
    la caja del prop (EditImageProperty.mm:1657-1678 con frm=self.bounds :1068). El right
    del cluster lo pone el renderer (8px con attach, 48px sin el). */
-.xone-prop[data-type="PH"],.xone-prop[data-type="VD"]{position:relative}
+.xone-prop[data-type="IMG"],.xone-prop[data-type="PH"],.xone-prop[data-type="VD"]{position:relative}
 .xone-photo-actions{position:absolute;top:5px;display:flex;gap:8px}
 .xone-photo-actions__btn{flex:none;width:32px;height:32px;object-fit:contain;display:flex;align-items:center;justify-content:center;font-size:20px;line-height:1}
 /* superficie del control de vídeo con valor: el runtime lo pinta con un reproductor
@@ -507,6 +507,16 @@ function buttonShowsText(attrs: Record<string, string>): boolean {
  *  afecta a REPRODUCIR (`:1645-1653`). Sin imagen resoluble (los built-in del framework no
  *  están en el árbol de la app) → glifo de respaldo, mismo criterio que el campo adjunto AT.
  *  `rotate-button` (`:254`) y `img-*-sel` (estado pulsado): sin consumidor real, diferidos. */
+/** ¿Este `IMG` es en realidad un control de FIRMA? Fiel a `EditImageProperty.mm:481-483`:
+ *  dentro de la rama de construcción de `T_IMG`, si el atributo `readonly` está **presente** y
+ *  su valor es **distinto de `"true"`** (`strcmp` devuelve 0 en la igualdad, así que
+ *  `readonly="false"` cualifica) y no hay `locked`, el control gana botón de FIRMAR
+ *  (`xone_img_sign.png`, override `img-sign`, cableado a `actionDoSign` `:512`) y de borrar
+ *  (`:514-536`). `locked`/`disableedit` ya vienen resueltos en `c.editable`. */
+function isSignatureControl(base: string, attrs: Record<string, string>): boolean {
+  return base === 'IMG' && attrs.readonly !== undefined && attrs.readonly !== 'true';
+}
+
 function photoActions(c: UIControl, resolveImg?: ResolveImg): string {
   // `readonly="true"` también deja el control de solo lectura, pero SOLO en esta familia:
   // `ATT_READONLY` no se lee en ningún otro control del framework (grep: solo
@@ -527,8 +537,15 @@ function photoActions(c: UIControl, resolveImg?: ResolveImg): string {
     }
     return `<span class="xone-photo-actions__btn">${glyph}</span>`;
   };
-  const hasAttach = a.attach !== undefined;
   const hasValue = c.value !== undefined && c.value !== null && String(c.value) !== '';
+  // La rama de FIRMA solo crea firmar + borrar (`:485-537`): ni adjuntar ni reproducir, así
+  // que su clúster siempre ancla en 48px.
+  if (isSignatureControl(base, a)) {
+    return `<span class="xone-photo-actions" style="right:48px">`
+      + btn([a['img-sign']], '✎') + btn([a['img-delete']], '✕')
+      + '</span>';
+  }
+  const hasAttach = a.attach !== undefined;
   // Orden en el DOM = orden visual izquierda→derecha. Reproducir solo en VD y solo con valor.
   const buttons = (base === 'VD' && hasValue ? btn([a['img-play']], '▶') : '')
     + (base === 'VD' ? btn([a['img-video']], '🎥') : btn([a['img-camera'], a.img], '📷'))
@@ -753,9 +770,11 @@ function renderControl(
       // Sin imagen resoluble el oráculo deja la caja VACÍA (`:751-759` image = nil + return);
       // emitir un `<img>` sin `src` pintaba el icono de imagen rota con el texto alternativo.
       const img = imgSrc ? `<img alt="${esc(val || c.name)}" src="${esc(imgSrc)}" style="${imgStyle}">` : '';
-      // Solo PH lleva botones de acción: la creación del oráculo está gateada a
-      // T_PHOTO/T_ATTACHAMENT (EditImageProperty.mm:133) ⇒ IMG queda como estaba.
-      const actions = base === 'PH' ? photoActions(c, resolveImg) : '';
+      // Botones de acción: `PH` siempre (creación gateada a T_PHOTO/T_ATTACHAMENT,
+      // EditImageProperty.mm:133) y un `IMG` solo cuando es control de FIRMA (`:481-483`).
+      const actions = base === 'PH' || isSignatureControl(base, c.attributes)
+        ? photoActions(c, resolveImg)
+        : '';
       return wrap(`${label}${img}${actions}`);
     }
     case 'VD': {
