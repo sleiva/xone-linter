@@ -63,9 +63,13 @@ body{font-family:sans-serif;font-size:17px;margin:0;padding:8px;background:#eee}
 /* botones de acción del control de foto: flotan SOBRE la imagen, arriba a la derecha de
    la caja del prop (EditImageProperty.mm:1657-1678 con frm=self.bounds :1068). El right
    del cluster lo pone el renderer (8px con attach, 48px sin el). */
-.xone-prop[data-type="PH"]{position:relative}
+.xone-prop[data-type="PH"],.xone-prop[data-type="VD"]{position:relative}
 .xone-photo-actions{position:absolute;top:5px;display:flex;gap:8px}
 .xone-photo-actions__btn{flex:none;width:32px;height:32px;object-fit:contain;display:flex;align-items:center;justify-content:center;font-size:20px;line-height:1}
+/* superficie del control de vídeo con valor: el runtime lo pinta con un reproductor
+   (web view) a toda la caja del prop; aquí, caja oscura con el glifo de reproducir. */
+.xone-video{width:100%;height:100%;min-height:32px;background:#111;display:flex;align-items:center;justify-content:center;color:#fff}
+.xone-video__play{font-size:28px;opacity:.85}
 .xone-vm{border:1px dashed #999;padding:8px;color:#666;font-size:12px}
 /* marco del envoltorio de pestañas con box-shadow:inset, NO con border: con el
    box-sizing:border-box de más abajo un border lateral descontaba 2px de ancho (y 2 de
@@ -464,34 +468,55 @@ function buttonShowsText(attrs: Record<string, string>): boolean {
   return (Number.isNaN(n) ? 0 : n) !== 0;
 }
 
-/** Botones de acción del control de foto (`type="PH"`), fiel a `iXonev2/EditImageProperty.mm`.
+/** Botones de acción del control de foto (`PH`) y de vídeo (`VD`), fiel a `iXonev2/EditImageProperty.mm`.
  *
- *  Creación `:133-251`, gateada a `T_PHOTO || T_ATTACHAMENT` ⇒ `type="IMG"` NO lleva
- *  botones. Precedencia de la imagen de cámara: built-in `xone_img_picture.png` (`:156`),
- *  pisado por `img` (`:161`) y por `img-camera` (`:180`) ⇒ `img-camera` > `img` > built-in;
- *  adjuntar `img-att` (`:204`), borrar `img-delete` (`:229`).
+ *  Creación de los botones de FOTO `:133-251`, gateada a `T_PHOTO || T_ATTACHAMENT`
+ *  ⇒ `type="IMG"` NO lleva botones. Precedencia de la imagen de cámara: built-in
+ *  `xone_img_picture.png` (`:156`), pisado por `img` (`:161`) y por `img-camera` (`:180`)
+ *  ⇒ `img-camera` > `img` > built-in; adjuntar `img-att` (`:204`), borrar `img-delete`
+ *  (`:229`).
+ *
+ *  La rama de VÍDEO (`:289-449`, gateada a `T_VIDEO || T_THTML`) crea los mismos tres más
+ *  el de REPRODUCIR: play built-in `xone_img_play.png` con override `img-play` (`:341-353`),
+ *  grabar built-in `xone_img_record.png` con override **`img-video`** (`:371-390`), y los de
+ *  adjuntar/borrar iguales. Los cuatro se añaden como subvista **solo si `!readonly`**
+ *  (`:365`, `:392`, `:420`, `:447`) ⇒ un VD de solo lectura no tiene ninguno.
  *
  *  Layout `:1631-1678` con `frm = self.bounds` (`:1068`), botones de 32×32 en `y=5` y un
  *  acumulador `xBOfsset` que arranca en 120 y baja de 40 en 40:
  *
- *    cámara   → x = W-120                                      (offset derecho 88)
- *    adjuntar → solo si existe el atributo `attach` (`:1666`)   (offset derecho 48)
- *    borrar   → x = W-40 con attach / W-80 sin attach           (offset derecho 8 / 48)
+ *    reproducir → x = W-160 (solo VD; el objeto attach existe si !readonly, `:1634`)
+ *                                                               (offset derecho 128)
+ *                 → CGRectZero si el VALOR está vacío (`:1645-1653`)
+ *    cámara/grabar → x = W-120                                  (offset derecho 88)
+ *    adjuntar → solo si existe el atributo `attach` (`:1666`)    (offset derecho 48)
+ *    borrar   → x = W-40 con attach / W-80 sin attach            (offset derecho 8 / 48)
  *
  *  Se emite como clúster flex con `gap:8px` anclado a la derecha: `right` = 8px con
- *  `attach`, 48px sin él — reproduce los tres offsets exactos. Constantes en puntos UIKit
- *  SIN escalar (no pasan por appScaleFactor* ni son unidades `p`) ⇒ px crudos.
- *  Device-medido (@3x, EspecialBasicos pág. 2): ink de cámara 25.0×20.0 y de ✕ 18.7×18.7 =
- *  `bt_camera`/`bt_Delete` (128×128) en aspect-fit sobre 32×32; paso entre centros 40.2.
+ *  `attach`, 48px sin él — reproduce los offsets exactos en los cuatro casos. Constantes en
+ *  puntos UIKit SIN escalar (no pasan por appScaleFactor* ni son unidades `p`) ⇒ px crudos.
+ *  Device-medido: foto (@3x, EspecialBasicos pág. 2) ink de cámara 25.0×20.0 y de ✕
+ *  18.7×18.7 = `bt_camera`/`bt_Delete` (128×128) en aspect-fit sobre 32×32, paso 40.2;
+ *  vídeo (pág. 3, caja del 50% ⇒ prueba más fuerte de la fórmula) ink de grabar 24.0×21.7
+ *  (= `bt_video.png`, ink 96×86 a 0.25) y ✕ 18.7, paso 40.0, centros en 105 y 145 sobre un
+ *  borde derecho de 209 pt.
  *
- *  `readonly` oculta los tres (`:1684-1701` y `:710-725`) → gate `c.editable`. El valor
- *  vacío NO los oculta (`:744` solo oculta rotar) — verificado en device con `MAP_FOTO`.
- *  Sin imagen resoluble (los built-in del framework no están en el árbol de la app) →
- *  glifo de respaldo, mismo criterio que el campo adjunto AT. `rotate-button` (`:254`) y
- *  `img-*-sel` (estado pulsado): sin consumidor real, diferidos. */
+ *  `readonly` los oculta todos (foto `:1684-1701` y `:710-725`; vídeo: ni se añaden como
+ *  subvista, `:365`/`:392`/`:420`/`:447`) → gate `c.editable`. En la foto el valor vacío NO
+ *  los oculta (`:744` solo oculta rotar, device-verificado con `MAP_FOTO`); en el vídeo solo
+ *  afecta a REPRODUCIR (`:1645-1653`). Sin imagen resoluble (los built-in del framework no
+ *  están en el árbol de la app) → glifo de respaldo, mismo criterio que el campo adjunto AT.
+ *  `rotate-button` (`:254`) y `img-*-sel` (estado pulsado): sin consumidor real, diferidos. */
 function photoActions(c: UIControl, resolveImg?: ResolveImg): string {
-  if (!c.editable) return '';
+  // `readonly="true"` también deja el control de solo lectura, pero SOLO en esta familia:
+  // `ATT_READONLY` no se lee en ningún otro control del framework (grep: solo
+  // EditImageProperty.mm), así que no es un flag general de editabilidad y no entra en
+  // `buildControl`. Fiel a `:299-311` (no-hypermedia: `readonly="true"` o `locked="true"`
+  // ⇒ readonly; `readonly="false"` deja editable). `locked`/`disableedit` ya vienen
+  // resueltos en `c.editable`.
+  if (!c.editable || c.attributes.readonly === 'true') return '';
   const a = c.attributes;
+  const base = c.type.replace(/\d+$/, '');
   // Primer nombre que RESUELVE, no el primero presente: el oráculo solo sustituye la
   // imagen si el fichero carga (`if (tmpimage)`, :165/:185), así que un `img-camera` roto
   // cae a `img` y de ahí al built-in (aquí, al glifo).
@@ -503,7 +528,10 @@ function photoActions(c: UIControl, resolveImg?: ResolveImg): string {
     return `<span class="xone-photo-actions__btn">${glyph}</span>`;
   };
   const hasAttach = a.attach !== undefined;
-  const buttons = btn([a['img-camera'], a.img], '📷')
+  const hasValue = c.value !== undefined && c.value !== null && String(c.value) !== '';
+  // Orden en el DOM = orden visual izquierda→derecha. Reproducir solo en VD y solo con valor.
+  const buttons = (base === 'VD' && hasValue ? btn([a['img-play']], '▶') : '')
+    + (base === 'VD' ? btn([a['img-video']], '🎥') : btn([a['img-camera'], a.img], '📷'))
     + (hasAttach ? btn([a['img-att']], '📎') : '')
     + btn([a['img-delete']], '✕');
   return `<span class="xone-photo-actions" style="right:${hasAttach ? 8 : 48}px">${buttons}</span>`;
@@ -542,9 +570,9 @@ function renderControl(
   // su rama `T_IMG || T_PHOTO || T_VIDEO` (`:1581-1705`) nunca la toca ⇒ mide 0×0
   // (invisible y sin ocupar sitio). La rama de AT sí la dimensiona (`:1530-1534`), así que
   // el campo adjunto conserva su etiqueta — y el device confirma las dos cosas.
-  // `VD` (misma rama del oráculo) queda fuera: hoy no tiene `case` propio y cae al
-  // `default` (input de texto), donde quitar la etiqueta no acerca nada al device.
-  const hasLabel = base !== 'B' && !['IMG', 'PH'].includes(base) && Boolean(c.title) && labelWidth > 0;
+  // `VD` entra en el mismo gate desde el corte #15 (antes caía al `default` como input de
+  // texto, donde quitarle la etiqueta no acercaba nada al device; ahora tiene `case` propio).
+  const hasLabel = base !== 'B' && !['IMG', 'PH', 'VD'].includes(base) && Boolean(c.title) && labelWidth > 0;
   // En L/TL el título ES el contenido (etiqueta de solo lectura): va como bloque
   // completo, no en línea con ancho fijo — el hlabel a 10ch lo truncaba/envolvía
   // (visto en device: "Version App: 0.0.2.604" completo, no en 10ch). El gate
@@ -720,6 +748,15 @@ function renderControl(
       // T_PHOTO/T_ATTACHAMENT (EditImageProperty.mm:133) ⇒ IMG queda como estaba.
       const actions = base === 'PH' ? photoActions(c, resolveImg) : '';
       return wrap(`${label}${img}${actions}`);
+    }
+    case 'VD': {
+      // Control de vídeo: comparte control (EditImageProperty) y rama de layout con IMG/PH.
+      // Con valor, el device muestra el reproductor a toda la caja (readonly ⇒ isWebView,
+      // :317-321 y :1082-1083); sin valor, la caja vacía. La superficie es una APROXIMACIÓN
+      // declarada del reproductor real (web view/AVPlayer), del mismo tipo que el chevron
+      // del combo: caja oscura con el glifo de reproducir centrado.
+      const surface = val ? '<div class="xone-video"><span class="xone-video__play">▶</span></div>' : '';
+      return wrap(`${label}${surface}${photoActions(c, resolveImg)}`);
     }
     case 'DR':
       return wrap(`${label}<div class="xone-vm">[firma] ${esc(c.name)}</div>`);
