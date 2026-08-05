@@ -3,6 +3,7 @@ import { groupKey, isDrawerGroup, isFixedGroup, isRenderablePage, type UIGroup }
 import type { UIFrame } from './Frame.js';
 import type { UIControl } from './Control.js';
 import { styleDeclsFromAttributes, declsToInline, xoneImgToCss, xoneLengthToCss, xoneColorToCss, resolveHeightPx, textBorderDecls, parseAlign, type ResolveImg } from './styleMap.js';
+import { APP_FONT_FACTOR_DEFAULT, labelFontSize } from './fontSize.js';
 
 // max-width:420px es el mismo RENDER_WIDTH usado por XoneRuntime.renderHtml para calcular
 // el scale (RENDER_WIDTH / resolution-width) — mantener ambos valores sincronizados.
@@ -30,8 +31,11 @@ body{font-family:sans-serif;font-size:17px;margin:0;padding:8px;background:#eee}
 .xone-row>*{box-sizing:border-box;min-width:0}
 /* la fila de un solo hijo no debe romper la cadena de height:% — el hijo resuelve contra el frame/section */
 .xone-row:has(> :only-child){display:contents}
-.xone-prop{display:flex;flex-direction:column;margin:4px 0}
-.xone-prop>label{display:block;font-size:11px;color:#555}
+/* 12px = el default LITERAL de propFontoSize/labelFontoSize del oráculo (EditPropertyControl.mm
+   :780-781, sin pasar por calculateSizeFont). Va en el CSS y no inline para que sólo afecte a
+   props: los contenedores comparten styleDeclsFromAttributes y no tienen cuerpo propio. */
+.xone-prop{display:flex;flex-direction:column;margin:4px 0;font-size:12px}
+.xone-prop>label{display:block;font-size:12px;color:#555}
 .xone-prop--hlabel{flex-direction:row;column-gap:8px}
 .xone-prop--hlabel>label{flex:0 0 auto;align-self:center}
 .xone-prop>button,.xone-prop>input:not([type=checkbox]),.xone-prop>textarea{flex:1 1 auto;width:100%;box-sizing:border-box;background:transparent;color:inherit;font:inherit;min-height:0}
@@ -105,11 +109,18 @@ const identity: Resolve = (t) => t;
 
 export interface ToolbarOpts { show: boolean; bgcolor?: string; forecolor?: string; }
 
+/** Factor de fuente de la APP en curso (`ios-font-factor`; ver `fontSize.ts`). Es una constante
+ *  de app que se necesita en las HOJAS del árbol (el wrapper del prop y su `<label>`), y la
+ *  cadena hasta ahí son 8 funciones con parámetros posicionales: en vez de añadir un 7º a cada
+ *  una, lo fija el único punto de entrada del render, que es síncrono y no reentrante. */
+let activeFontFactor = APP_FONT_FACTOR_DEFAULT;
+
 export function renderViewHtml(
   view: ViewState, translatedCss: string, resolve: Resolve = identity,
-  opts: { scale?: number; height?: number; toolbar?: ToolbarOpts; resolveImg?: ResolveImg } = {},
+  opts: { scale?: number; height?: number; toolbar?: ToolbarOpts; resolveImg?: ResolveImg; fontFactor?: number } = {},
 ): string {
   const scale = opts.scale ?? 1;
+  activeFontFactor = opts.fontFactor ?? APP_FONT_FACTOR_DEFAULT;
   const inner = renderColl(view, resolve, scale, opts.height, opts.toolbar, opts.resolveImg);
   const css = opts.height !== undefined ? `${BASE_CSS}\n${VIEWPORT_CSS}` : BASE_CSS;
   return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(resolve(view.title ?? view.collName))}</title>`
@@ -605,8 +616,18 @@ function renderControl(
   // `hasLabel` (labelwidth=0/title vacío → sin label) se mantiene igual para L/TL;
   // lo que cambia es solo la FORMA del label (bloque vs en línea) y la clase.
   const inlineLabel = hasLabel && !['B', 'L', 'TL'].includes(base);
+  // Cuerpo de la ETIQUETA (corte #18): su cascada es independiente de la del campo
+  // (`labelFontoSize` frente a `propFontoSize`, EditPropertyControl.mm:780-827) y tiene que ir
+  // INLINE — la regla `.xone-prop>label` del BASE_CSS gana a la herencia del wrapper, que es
+  // lo que hacía que las 11 etiquetas de `EspecialFontSize` salieran todas iguales.
+  const lblSize = labelFontSize(c.attributes, activeFontFactor);
+  const lblFont = lblSize !== undefined ? `font-size:${lblSize}px` : '';
+  const lblStyle = (extra?: string) => {
+    const decls = [extra, lblFont].filter(Boolean).join(';');
+    return decls ? ` style="${decls}"` : '';
+  };
   const label = hasLabel
-    ? (inlineLabel ? `<label style="width:${labelWidth}ch">${esc(title)}</label>` : `<label>${esc(title)}</label>`)
+    ? `<label${lblStyle(inlineLabel ? `width:${labelWidth}ch` : undefined)}>${esc(title)}</label>`
     : '';
   // tooltip="" (presente pero vacío) cae a caption — no se queda en cadena vacía.
   const placeholderText = c.attributes.tooltip || c.attributes.caption;
@@ -719,7 +740,9 @@ function renderControl(
       // del texto ESCRITO de un input). Override sobre el color heredado del wrapper.
       const fc = xoneColorToCss(c.attributes.forecolor);
       const sty = fc ? ` style="color:${fc}"` : '';
-      const lbl = hasLabel ? `<label${sty}>${esc(title)}</label>` : '';
+      // el `<label>` de L/TL también lleva su cuerpo (es el texto que se ve en la pantalla
+      // `EspecialFontSize`, con la que se calibró el corte #18)
+      const lbl = hasLabel ? `<label${lblStyle(fc ? `color:${fc}` : undefined)}>${esc(title)}</label>` : '';
       return wrap(`${lbl}<span${sty}>${esc(val)}</span>`);
     }
     case 'NC': {
@@ -891,7 +914,7 @@ function appBarTitleIndex(row: ChildItem[]): number {
 function inline(
   attrs: Record<string, string>, scale: number, container = false, overrides?: Record<string, string>, resolveImg?: ResolveImg,
 ): string {
-  const decls = styleDeclsFromAttributes(attrs, scale, resolveImg);
+  const decls = styleDeclsFromAttributes(attrs, scale, resolveImg, activeFontFactor);
   // align de CONTENEDOR: la horizontal también posiciona a los hijos (iOS centra los
   // controles del frame, no solo su texto). La vertical de F1 ya emite el flex completo
   // (display+flex-direction+justify-content+align-items) y tiene prioridad — no duplicar.

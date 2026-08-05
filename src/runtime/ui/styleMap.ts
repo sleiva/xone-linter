@@ -1,5 +1,7 @@
 /** Traduce atributos de estilo de XOne a propiedades CSS web. Funciones puras. */
 
+import { APP_FONT_FACTOR_DEFAULT, fieldFontSize } from './fontSize.js';
+
 const CSS_NAMED_COLORS = new Set<string>([
   'transparent','currentcolor',
   'aliceblue','antiquewhite','aqua','aquamarine','azure','beige','bisque','black','blanchedalmond','blue','blueviolet','brown','burlywood','cadetblue','chartreuse','chocolate','coral','cornflowerblue','cornsilk','crimson','cyan','darkblue','darkcyan','darkgoldenrod','darkgray','darkgrey','darkgreen','darkkhaki','darkmagenta','darkolivegreen','darkorange','darkorchid','darkred','darksalmon','darkseagreen','darkslateblue','darkslategray','darkslategrey','darkturquoise','darkviolet','deeppink','deepskyblue','dimgray','dimgrey','dodgerblue','firebrick','floralwhite','forestgreen','fuchsia','gainsboro','ghostwhite','gold','goldenrod','gray','grey','green','greenyellow','honeydew','hotpink','indianred','indigo','ivory','khaki','lavender','lavenderblush','lawngreen','lemonchiffon','lightblue','lightcoral','lightcyan','lightgoldenrodyellow','lightgray','lightgrey','lightgreen','lightpink','lightsalmon','lightseagreen','lightskyblue','lightslategray','lightslategrey','lightsteelblue','lightyellow','lime','limegreen','linen','magenta','maroon','mediumaquamarine','mediumblue','mediumorchid','mediumpurple','mediumseagreen','mediumslateblue','mediumspringgreen','mediumturquoise','mediumvioletred','midnightblue','mintcream','mistyrose','moccasin','navajowhite','navy','oldlace','olive','olivedrab','orange','orangered','orchid','palegoldenrod','palegreen','paleturquoise','palevioletred','papayawhip','peachpuff','peru','pink','plum','powderblue','purple','rebeccapurple','red','rosybrown','royalblue','saddlebrown','salmon','sandybrown','seagreen','seashell','sienna','silver','skyblue','slateblue','slategray','slategrey','snow','springgreen','steelblue','tan','teal','thistle','tomato','turquoise','violet','wheat','white','whitesmoke','yellow','yellowgreen',
@@ -134,7 +136,10 @@ const LENGTH_ATTRS: Array<[string, string]> = [
 
 /** Mapea un objeto de atributos XOne a declaraciones CSS web (clave→valor). `resolveImg`
  *  (si se pasa) resuelve el `imgbk` contra el árbol real de la app — ver `xoneImgToCss`. */
-export function styleDeclsFromAttributes(attrs: Record<string, string>, scale = 1, resolveImg?: ResolveImg): Record<string, string> {
+export function styleDeclsFromAttributes(
+  attrs: Record<string, string>, scale = 1, resolveImg?: ResolveImg,
+  fontFactor = APP_FONT_FACTOR_DEFAULT,
+): Record<string, string> {
   const out: Record<string, string> = {};
   for (const [attr, css] of COLOR_ATTRS) {
     const c = xoneColorToCss(attrs[attr]);
@@ -144,8 +149,13 @@ export function styleDeclsFromAttributes(attrs: Record<string, string>, scale = 
     const l = xoneLengthToCss(attrs[attr], scale);
     if (l) out[css] = l;
   }
-  // fontsize NO escala con resolution-width (evidencia F3: el device no encoge tipografía; calibración fina pendiente)
-  if (attrs.fontsize && /^\d+$/.test(attrs.fontsize)) out['font-size'] = `${attrs.fontsize}px`;
+  // Cuerpo tipográfico (corte #18): el tamaño NO es el `fontsize` declarado ni escala con
+  // resolution-width (evidencia F3, confirmada en fuente: `calculateSizeFont` no multiplica por
+  // ningún factor de escala). Es la cascada del CAMPO más el factor de app — ver `fontSize.ts`.
+  // La etiqueta lleva el SUYO inline en el `<label>` (el wrapper no le sirve: la regla
+  // `.xone-prop>label` del BASE_CSS gana a la herencia).
+  const fs = fieldFontSize(attrs, fontFactor);
+  if (fs !== undefined) out['font-size'] = `${fs}px`;
   if (attrs.fontbold === 'true') out['font-weight'] = 'bold';
   if (attrs['textfont-bold'] === 'true') out['font-weight'] = 'bold';
   if (attrs.fontname) {

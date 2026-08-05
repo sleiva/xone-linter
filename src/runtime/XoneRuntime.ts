@@ -33,6 +33,7 @@ import { renderViewText } from './ui/ViewRenderer.js';
 import { orderedCssTexts } from './css/orderedCss.js';
 import { renderViewHtml } from './ui/HtmlRenderer.js';
 import { translateCss, collSelectorDecls } from './ui/cssTranslate.js';
+import { appFontFactor } from './ui/fontSize.js';
 import { xoneColorToCss, pickImagePath, type ResolveImg } from './ui/styleMap.js';
 import { isRenderablePage, isDrawerGroup, isPageGroup, groupKey } from './ui/Group.js';
 import { evaluateVisible } from './ui/visibility.js';
@@ -534,8 +535,11 @@ export class XoneRuntime {
       if (raw !== undefined && raw !== null && raw !== '') return String(raw);
       return this.appData.getGlobalMacro(f); // '' si no existe
     };
-    const translatedCss = translateCss(rawCss, scale, (val) => resolveRawFieldMacros(val, getField));
-    return renderViewHtml(view, translatedCss, this.buildMacroResolver(viewColl), { scale, height, toolbar, resolveImg });
+    // Factor de fuente de la app (`ios-font-factor`): el oráculo lo SUMA al tamaño declarado
+    // (corte #18, `fontSize.ts`). Va tanto al CSS traducido como al render.
+    const fontFactor = appFontFactor(this.project.app.attributes);
+    const translatedCss = translateCss(rawCss, scale, (val) => resolveRawFieldMacros(val, getField), fontFactor);
+    return renderViewHtml(view, translatedCss, this.buildMacroResolver(viewColl), { scale, height, toolbar, resolveImg, fontFactor });
   }
 
   private makeExecutor(vm?: VmAdapter): EventExecutor {

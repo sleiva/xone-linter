@@ -23,7 +23,9 @@ export function collSelectorDecls(cssText: string): Record<string, string> {
  *  `resolveValue` (opcional) se aplica a cada valor de declaración que contenga `##` — se usa
  *  para resolver `##FLD_X##` (campo/mapping) antes de traducir; los `##…##` no resueltos se
  *  quedan como estén y `styleMap` los descarta si no son válidos. */
-export function translateCss(cssText: string, scale = 1, resolveValue?: (v: string) => string): string {
+export function translateCss(
+  cssText: string, scale = 1, resolveValue?: (v: string) => string, fontFactor?: number,
+): string {
   const text = cssText.replace(/\/\*[\s\S]*?\*\//g, '');
   const rules: string[] = [];
   const re = /([^{}]+)\{([^{}]*)\}/g;
@@ -40,7 +42,10 @@ export function translateCss(cssText: string, scale = 1, resolveValue?: (v: stri
       if (resolveValue && v.includes('##')) v = resolveValue(v);
       if (k) declsObj[k] = v;
     }
-    const body = declsToInline(styleDeclsFromAttributes(declsObj, scale));
+    // El `font-size` de una regla de clase sale de la cascada del CAMPO (corte #18). La regla
+    // de la ETIQUETA no se emite aquí: su tamaño va inline en el `<label>` por la vía de los
+    // atributos materializados, que es la que gana en el navegador.
+    const body = declsToInline(styleDeclsFromAttributes(declsObj, scale, undefined, fontFactor));
     if (body) rules.push(`${sel}{${body}}`);
   }
   return rules.join('\n');
