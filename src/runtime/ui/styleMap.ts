@@ -55,18 +55,34 @@ export function pickImagePath(paths: string[] | undefined, kind: ImgKind): strin
     : (inDir('files') ?? inDir('icons') ?? paths[0]);
 }
 
-/** Normaliza un nombre de imagen XOne (para `imgbk` → `url(...)` CSS, o el `path`/valor
- *  data-bound de un control IMG/PH → `src`): quita `.\`/`./` inicial y convierte `\`→`/`.
- *  Devuelve `undefined` si está vacío o es un macro dinámico (`##...##`, no resoluble aquí).
- *  Si se pasa `resolveImg`, se aplica tras normalizar (el device resuelve el nombre pelado
- *  contra el árbol real de la app, p. ej. `fondo.png` -> `icons/fondo.png`). `kind` distingue
- *  el contexto (`img`/`imgbk` atributo → `icon`; valor data de `IMG`/`PH` → `data`). */
+/** Resuelve un nombre de imagen XOne (el `imgbk` de un frame → `url(...)` CSS, el
+ *  `path`/valor data-bound de un control IMG/PH → `src`, el `img` de un botón…) al fichero
+ *  real del árbol de la app.
+ *
+ *  El runtime **ignora el prefijo de directorio y busca por NOMBRE DE FICHERO**, con tres
+ *  rutas independientes que hacen lo mismo: el valor/`path` de IMG/PH se parte por el
+ *  conjunto `/ \ ? =` y se usa el ÚLTIMO componente (`EditImageProperty.mm:803-807`, luego
+ *  busca en `files/` → `icons/` → réplica); `getResurcesCachePath` sustituye `##APP##` por la
+ *  raíz de la app y compone sus búsquedas con `filename.pathComponents.lastObject`
+ *  (`XoneApp.mm:4120-4122`); y `normalizeResourcePath` borra explícitamente `..\`, `../`,
+ *  `.\`, `./`, `\icons\`, `/icons/` e `icons/` (`XoneApp.mm:8110-8124`). Por eso no hay que
+ *  interpretar `##APP##`: se va con el prefijo.
+ *
+ *  Excepción del oráculo (`:804`): una URL `http:`/`https:` NO se parte — es una descarga.
+ *
+ *  El guard de macro se aplica al NOMBRE DE FICHERO, así que un macro de campo sin resolver
+ *  (`##FLD_X##`, o `icons/##FLD_X##.png`) sigue devolviendo `undefined`. `kind` distingue el
+ *  contexto (`img`/`imgbk` atributo → `icon`; valor data de `IMG`/`PH` → `data`), que es el
+ *  orden de cachés del oráculo. Sin `resolveImg` (sin índice) el resultado es el propio
+ *  nombre de fichero: el mismo contrato, sin árbol donde buscarlo. */
 export function xoneImgToCss(v: string | undefined, resolveImg?: ResolveImg, kind?: ImgKind): string | undefined {
   if (!v) return undefined;
   const s = v.trim();
-  if (s === '' || s.includes('##')) return undefined;
-  const normalized = s.replace(/^\.[\\/]/, '').replace(/\\/g, '/');
-  return resolveImg ? resolveImg(normalized, kind) : normalized;
+  if (s === '') return undefined;
+  if (/^https?:/i.test(s)) return s;
+  const base = (s.replace(/\\/g, '/').split(/[/?=]/).pop() ?? '').trim();
+  if (base === '' || base.includes('##')) return undefined;
+  return resolveImg ? resolveImg(base, kind) : base;
 }
 
 /** Parsea `align` por substring, order-independent (fiel a EditFrameControl.mm:1805-1823):
