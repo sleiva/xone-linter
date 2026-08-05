@@ -1,4 +1,4 @@
-import { styleDeclsFromAttributes, declsToInline } from './styleMap.js';
+import { styleDeclsFromAttributes, declsToInline, type Scale } from './styleMap.js';
 
 /** Declaraciones crudas del selector `coll` del CSS del proyecto (última regla gana). */
 export function collSelectorDecls(cssText: string): Record<string, string> {
@@ -24,7 +24,7 @@ export function collSelectorDecls(cssText: string): Record<string, string> {
  *  para resolver `##FLD_X##` (campo/mapping) antes de traducir; los `##…##` no resueltos se
  *  quedan como estén y `styleMap` los descarta si no son válidos. */
 export function translateCss(
-  cssText: string, scale = 1, resolveValue?: (v: string) => string, fontFactor?: number,
+  cssText: string, scale: number | Scale = 1, resolveValue?: (v: string) => string, fontFactor?: number,
 ): string {
   const text = cssText.replace(/\/\*[\s\S]*?\*\//g, '');
   const rules: string[] = [];

@@ -2,7 +2,7 @@ import type { ViewState } from './ViewState.js';
 import { groupKey, isDrawerGroup, isFixedGroup, isRenderablePage, type UIGroup } from './Group.js';
 import type { UIFrame } from './Frame.js';
 import type { UIControl } from './Control.js';
-import { styleDeclsFromAttributes, declsToInline, xoneImgToCss, xoneLengthToCss, xoneColorToCss, resolveHeightPx, textBorderDecls, parseAlign, type ResolveImg } from './styleMap.js';
+import { styleDeclsFromAttributes, declsToInline, xoneImgToCss, xoneLengthToCss, xoneColorToCss, resolveHeightPx, textBorderDecls, parseAlign, normalizeScale, type ResolveImg, type Scale } from './styleMap.js';
 import { APP_FONT_FACTOR_DEFAULT, labelFontSize } from './fontSize.js';
 
 // max-width:420px es el mismo RENDER_WIDTH usado por XoneRuntime.renderHtml para calcular
@@ -117,9 +117,10 @@ let activeFontFactor = APP_FONT_FACTOR_DEFAULT;
 
 export function renderViewHtml(
   view: ViewState, translatedCss: string, resolve: Resolve = identity,
-  opts: { scale?: number; height?: number; toolbar?: ToolbarOpts; resolveImg?: ResolveImg; fontFactor?: number } = {},
+  opts: { scale?: number | Scale; height?: number; toolbar?: ToolbarOpts; resolveImg?: ResolveImg; fontFactor?: number } = {},
 ): string {
-  const scale = opts.scale ?? 1;
+  // un escalar sigue valiendo y significa "los dos ejes iguales" (compatibilidad)
+  const scale = normalizeScale(opts.scale);
   activeFontFactor = opts.fontFactor ?? APP_FONT_FACTOR_DEFAULT;
   const inner = renderColl(view, resolve, scale, opts.height, opts.toolbar, opts.resolveImg);
   const css = opts.height !== undefined ? `${BASE_CSS}\n${VIEWPORT_CSS}` : BASE_CSS;
@@ -131,7 +132,7 @@ function groupLabel(g: UIGroup, resolve: Resolve): string {
   return resolve(g.attributes.title || g.name || g.id || '');
 }
 function renderTabSet(
-  groups: UIGroup[], resolve: Resolve, scale: number, parentPx: number | undefined, activeGroup?: string, notab?: boolean,
+  groups: UIGroup[], resolve: Resolve, scale: Scale, parentPx: number | undefined, activeGroup?: string, notab?: boolean,
   resolveImg?: ResolveImg,
 ): string {
   const swipe = groups.some(g => g.attributes['group-swipe'] === 'true');
@@ -158,7 +159,7 @@ function renderH1(view: ViewState, resolve: Resolve, toolbar?: ToolbarOpts): str
 }
 
 function renderColl(
-  view: ViewState, resolve: Resolve, scale: number, height?: number, toolbar?: ToolbarOpts, resolveImg?: ResolveImg,
+  view: ViewState, resolve: Resolve, scale: Scale, height?: number, toolbar?: ToolbarOpts, resolveImg?: ResolveImg,
 ): string {
   const out: string[] = [];
   let run: UIGroup[] = [];
@@ -202,7 +203,7 @@ function renderColl(
 }
 
 function renderGroup(
-  g: UIGroup, resolve: Resolve, scale: number, parentPx: number | undefined, tab?: string, active?: boolean, resolveImg?: ResolveImg,
+  g: UIGroup, resolve: Resolve, scale: Scale, parentPx: number | undefined, tab?: string, active?: boolean, resolveImg?: ResolveImg,
 ): string {
   if (!g.visible) return '';
   // Contexto de posición para frames flotantes descendientes (position:absolute → relativo
@@ -217,7 +218,7 @@ function renderGroup(
 }
 
 function renderDrawer(
-  g: UIGroup, resolve: Resolve, scale: number, parentPx: number | undefined, open?: boolean, resolveImg?: ResolveImg,
+  g: UIGroup, resolve: Resolve, scale: Scale, parentPx: number | undefined, open?: boolean, resolveImg?: ResolveImg,
 ): string {
   if (!g.visible) return ''; // drawer oculto por disablevisible
   const orient = g.attributes['drawer-orientation'] || 'left';
@@ -234,12 +235,13 @@ function renderDrawer(
  *  positionTop (`EditFrameControl.mm:6734-6735,6767-6768`: `return 0.0` si el cache es nil) —
  *  NO se deja en la posición de flujo. Consumidores sin top/left: AliviaApp Documents
  *  frmUploadPopup, FontIconsApp frmBottom. undefined si el frame no es floating. */
-function floatingOverride(attrs: Record<string, string>, scale: number): Record<string, string> | undefined {
+function floatingOverride(attrs: Record<string, string>, scale: Scale): Record<string, string> | undefined {
   if (attrs.floating !== 'true') return undefined;
   return {
     position: 'absolute',
-    left: xoneLengthToCss(attrs.left, scale) ?? '0px',
-    top: xoneLengthToCss(attrs.top, scale) ?? '0px',
+    // `left` es horizontal y `top` vertical: cada uno con su factor (corte #19)
+    left: xoneLengthToCss(attrs.left, scale.w) ?? '0px',
+    top: xoneLengthToCss(attrs.top, scale.h) ?? '0px',
   };
 }
 
@@ -250,7 +252,7 @@ function hasFloatingFrame(frames: UIFrame[]): boolean {
 }
 
 function renderFrame(
-  f: UIFrame, resolve: Resolve, scale: number, parentPx: number | undefined, overrides?: Record<string, string>,
+  f: UIFrame, resolve: Resolve, scale: Scale, parentPx: number | undefined, overrides?: Record<string, string>,
   resolveImg?: ResolveImg,
 ): string {
   if (!f.visible) return '';
@@ -274,7 +276,7 @@ const VERTICAL_MARGIN_ATTRS = [['tmargin', 'margin-top'], ['bmargin', 'margin-bo
  *  `parentPx` (altura del padre) — ver cita de oráculo en `renderFrame`. Longitudes en `p`/número
  *  no se tocan (ya las resuelve `xoneLengthToCss` correctamente, son absolutas). */
 function verticalMarginOverride(
-  attrs: Record<string, string>, parentPx: number | undefined, scale: number,
+  attrs: Record<string, string>, parentPx: number | undefined, scale: Scale,
 ): Record<string, string> | undefined {
   if (parentPx === undefined) return undefined;
   let out: Record<string, string> | undefined;
@@ -327,7 +329,7 @@ function orderedChildren(
 }
 
 function renderChildren(
-  childOrder: ('frame' | 'control')[] | undefined, frames: UIFrame[], controls: UIControl[], resolve: Resolve, scale: number,
+  childOrder: ('frame' | 'control')[] | undefined, frames: UIFrame[], controls: UIControl[], resolve: Resolve, scale: Scale,
   parentPx: number | undefined, resolveImg?: ResolveImg, rowJustify?: string, rowAlign?: string,
 ): string {
   const items: ChildItem[] = orderedChildren(childOrder, frames, controls).map(it => ({
@@ -399,15 +401,15 @@ const IMG_SCALE_TYPE_FIT: Record<string, string> = { center_crop: 'cover', fit_x
  *  altura — se comprueba con `xoneLengthToCss` (mismo parser que usa el resto del renderer)
  *  y se exige un valor DISTINTO de `auto`/`undefined`; `xheight` no es un atributo del
  *  parser, no aplica. */
-function hasEffectiveHeight(attrs: Record<string, string>, scale: number): boolean {
-  const height = xoneLengthToCss(attrs.height, scale);
+function hasEffectiveHeight(attrs: Record<string, string>, scale: Scale): boolean {
+  const height = xoneLengthToCss(attrs.height, scale.h);
   return height !== undefined && height !== 'auto';
 }
 
 /** Override `height:100%` del WRAPPER (`.xone-prop`) para que el `<img>` al 100%/100% tenga
  *  una caja real que llenar — SOLO si el prop no declara ya su propia altura. Claves
  *  distintas de `verticalMarginOverride` (`margin-top`/`margin-bottom`) → mergeable sin pisar. */
-function imgFillOverride(base: string, attrs: Record<string, string>, scale: number): Record<string, string> | undefined {
+function imgFillOverride(base: string, attrs: Record<string, string>, scale: Scale): Record<string, string> | undefined {
   if (base !== 'IMG' && base !== 'PH') return undefined;
   if (!IMG_SCALE_TYPE_FIT[attrs['scale-type'] ?? '']) return undefined;
   if (hasEffectiveHeight(attrs, scale)) return undefined;
@@ -566,7 +568,7 @@ function photoActions(c: UIControl, resolveImg?: ResolveImg): string {
 }
 
 function renderControl(
-  c: UIControl, resolve: Resolve, scale: number, parentPx: number | undefined, overrides?: Record<string, string>,
+  c: UIControl, resolve: Resolve, scale: Scale, parentPx: number | undefined, overrides?: Record<string, string>,
   resolveImg?: ResolveImg,
 ): string {
   if (!c.visible) return '';
@@ -639,7 +641,8 @@ function renderControl(
   const val = formatDateValue(c.value, base) ?? resolve(c.value == null ? '' : String(c.value));
 
   // G19: borde del ELEMENTO de texto desde text-border* (subrayado / caja parcial).
-  const ebDecls = declsToInline(textBorderDecls(c.attributes, scale));
+  // el grosor del borde se queda en el eje horizontal (sin cita que lo reparta, ver el spec)
+  const ebDecls = declsToInline(textBorderDecls(c.attributes, scale.w));
   const eb = ebDecls ? ` style="${ebDecls}"` : '';
 
   const lines = parseInt(c.attributes.lines ?? '', 10);
@@ -912,7 +915,7 @@ function appBarTitleIndex(row: ChildItem[]): number {
 }
 
 function inline(
-  attrs: Record<string, string>, scale: number, container = false, overrides?: Record<string, string>, resolveImg?: ResolveImg,
+  attrs: Record<string, string>, scale: Scale, container = false, overrides?: Record<string, string>, resolveImg?: ResolveImg,
 ): string {
   const decls = styleDeclsFromAttributes(attrs, scale, resolveImg, activeFontFactor);
   // align de CONTENEDOR: la horizontal también posiciona a los hijos (iOS centra los

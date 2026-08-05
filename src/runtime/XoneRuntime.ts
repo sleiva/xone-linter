@@ -92,10 +92,17 @@ export function parseExecuteNode(method?: string): { name: string; args: string[
 }
 
 // Ancho de referencia del render HTML (mismo valor que `.xone-coll{max-width:420px}` en
-// HtmlRenderer.ts BASE_CSS). El scale de renderHtml es RENDER_WIDTH / resolution-width.
+// HtmlRenderer.ts BASE_CSS). El scale horizontal de renderHtml es RENDER_WIDTH / resolution-width.
 const RENDER_WIDTH = 420;
-// Altura por defecto cuando la app no declara resolution-width/height (viewport típico).
-const DEFAULT_RENDER_HEIGHT = 892;
+// DISPOSITIVO DE REFERENCIA del render (corte #19): el mismo iPhone 16 Pro Max con el que se
+// mide toda la campaña de layout. El oráculo escala los `p` con DOS factores independientes
+// (`XoneApp.mm:3093` ancho, `:3105` alto) y su marco útil recorta del ALTO —y sólo del alto—
+// los safe area insets (`:3017`): 956 − (62 + 34) = 860. El render es ese dispositivo con un
+// zoom uniforme de RENDER_WIDTH/DEVICE_WIDTH_PT, así que el alto del viewport NO depende de la
+// app (la pantalla no cambia con la app; lo que cambia es el factor de los `p`).
+const DEVICE_WIDTH_PT = 440;
+const DEVICE_FRAME_HEIGHT_PT = 860;
+const RENDER_HEIGHT = Math.round((DEVICE_FRAME_HEIGHT_PT * RENDER_WIDTH) / DEVICE_WIDTH_PT); // 821
 
 /**
  * Runtime headless de XOne.
@@ -512,11 +519,14 @@ export class XoneRuntime {
     // fallback a todos los .css si la app no declara <style>.
     const rawCss = orderedCssTexts({ app: this.project.app, cssFiles: this.project.cssFiles }).join('\n');
     const resW = parseInt(this.project.app.attributes['resolution-width'] ?? '', 10);
-    const scale = Number.isFinite(resW) && resW > 0 ? RENDER_WIDTH / resW : 1;
     const resH = parseInt(this.project.app.attributes['resolution-height'] ?? '', 10);
-    const height = Number.isFinite(resW) && resW > 0 && Number.isFinite(resH) && resH > 0
-      ? Math.round(RENDER_WIDTH * (resH / resW))
-      : DEFAULT_RENDER_HEIGHT;
+    // Dos factores independientes, uno por eje. Sin resolución declarada el oráculo usa
+    // `appScaleFactorSystem*`, que en iPhone vale 1.0 (`XoneApp.mm:2074-2110`).
+    const scale = {
+      w: Number.isFinite(resW) && resW > 0 ? RENDER_WIDTH / resW : 1,
+      h: Number.isFinite(resH) && resH > 0 ? RENDER_HEIGHT / resH : 1,
+    };
+    const height = RENDER_HEIGHT;
     const cssColl = collSelectorDecls(rawCss);
     const rawShow = view.attributes['show-toolbar'] ?? cssColl['show-toolbar'];
     const show = rawShow === undefined || rawShow.trim().toLowerCase() !== 'false';

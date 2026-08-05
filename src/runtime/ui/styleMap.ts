@@ -120,33 +120,51 @@ const COLOR_ATTRS: Array<[string, string]> = [
   ['text-forecolor', 'color'],
   ['border-color', 'border-color'],
 ];
-const LENGTH_ATTRS: Array<[string, string]> = [
-  ['width', 'width'],
-  ['height', 'height'],
-  ['lmargin', 'margin-left'],
-  ['tmargin', 'margin-top'],
-  ['rmargin', 'margin-right'],
-  ['bmargin', 'margin-bottom'],
-  ['lpadding', 'padding-left'],
-  ['tpadding', 'padding-top'],
-  ['rpadding', 'padding-right'],
-  ['bpadding', 'padding-bottom'],
-  ['border-corner-radius', 'border-radius'],
+/** Escala de `p` → px, **por eje**: el device tiene dos factores independientes
+ *  (`appResolutionWidth = anchoMarco/resolution-width`, `XoneApp.mm:3093`;
+ *  `appResolutionHeight = altoMarco/resolution-height`, `:3105`) y el marco útil recorta del
+ *  ALTO — y sólo del alto — los safe area insets (`:3017`). Un número escalar sigue valiendo y
+ *  significa "los dos ejes iguales". */
+export type Scale = { w: number; h: number };
+
+export function normalizeScale(s: number | Scale | undefined): Scale {
+  if (s === undefined) return { w: 1, h: 1 };
+  return typeof s === 'number' ? { w: s, h: s } : s;
+}
+
+// El eje de cada longitud sale del oráculo: horizontales con appScaleFactorWidth
+// (`EditFrameControl.mm:1768-1780` márgenes l/r, `EditPropertyControl.mm:866`/`:870` paddings de
+// la etiqueta, `:1991` el ancho) y verticales con appScaleFactorHeight (`:1784-1796` márgenes
+// t/b, `EditPropertyControl.mm:2013`/`:2212` el alto). `border-corner-radius` se queda en el
+// horizontal: no hay cita que lo reparta.
+const LENGTH_ATTRS: Array<[string, string, 'w' | 'h']> = [
+  ['width', 'width', 'w'],
+  ['height', 'height', 'h'],
+  ['lmargin', 'margin-left', 'w'],
+  ['tmargin', 'margin-top', 'h'],
+  ['rmargin', 'margin-right', 'w'],
+  ['bmargin', 'margin-bottom', 'h'],
+  ['lpadding', 'padding-left', 'w'],
+  ['tpadding', 'padding-top', 'h'],
+  ['rpadding', 'padding-right', 'w'],
+  ['bpadding', 'padding-bottom', 'h'],
+  ['border-corner-radius', 'border-radius', 'w'],
 ];
 
 /** Mapea un objeto de atributos XOne a declaraciones CSS web (clave→valor). `resolveImg`
  *  (si se pasa) resuelve el `imgbk` contra el árbol real de la app — ver `xoneImgToCss`. */
 export function styleDeclsFromAttributes(
-  attrs: Record<string, string>, scale = 1, resolveImg?: ResolveImg,
+  attrs: Record<string, string>, scale: number | Scale = 1, resolveImg?: ResolveImg,
   fontFactor = APP_FONT_FACTOR_DEFAULT,
 ): Record<string, string> {
+  const sc = normalizeScale(scale);
   const out: Record<string, string> = {};
   for (const [attr, css] of COLOR_ATTRS) {
     const c = xoneColorToCss(attrs[attr]);
     if (c) out[css] = c;
   }
-  for (const [attr, css] of LENGTH_ATTRS) {
-    const l = xoneLengthToCss(attrs[attr], scale);
+  for (const [attr, css, axis] of LENGTH_ATTRS) {
+    const l = xoneLengthToCss(attrs[attr], sc[axis]);
     if (l) out[css] = l;
   }
   // Cuerpo tipográfico (corte #18): el tamaño NO es el `fontsize` declarado ni escala con
@@ -162,11 +180,12 @@ export function styleDeclsFromAttributes(
     const safe = attrs.fontname.replace(/["';<>]/g, '').trim();
     if (safe) out['font-family'] = safe;
   }
-  // elevation (doc: sombra estilo Material) → box-shadow; escala como las longitudes.
+  // elevation (doc: sombra estilo Material) → box-shadow; escala con el eje VERTICAL
+  // (`EditFrameControl.mm:413`: `elevation * [self appScaleFactorHeight]`).
   const elev = parseInt(attrs.elevation ?? '', 10);
   if (Number.isFinite(elev) && elev > 0) {
-    const blur = Math.max(1, Math.round(elev * scale));
-    const dy = Math.max(1, Math.round((elev * scale) / 2));
+    const blur = Math.max(1, Math.round(elev * sc.h));
+    const dy = Math.max(1, Math.round((elev * sc.h) / 2));
     out['box-shadow'] = `0 ${dy}px ${blur}px rgba(0,0,0,0.26)`;
   }
   if (out['border-color']) { out['border-style'] = 'solid'; if (!out['border-width']) out['border-width'] = '1px'; }
@@ -233,7 +252,9 @@ const HEIGHT_PCT_RE = /^-?\d+(?:\.\d+)?%$/;
  *    con altura p definida", más fiel al oráculo: la base real existe independientemente).
  *  - sentinelas (`-2`=fill/100%, `-1`=auto) y vacío/ausente/inválido: no hay un px estático
  *    determinable aquí → `undefined` (quedan como los resuelve `xoneLengthToCss` normalmente). */
-export function resolveHeightPx(heightAttr: string | undefined, parentPx: number | undefined, scale: number): number | undefined {
+export function resolveHeightPx(
+  heightAttr: string | undefined, parentPx: number | undefined, scale: number | Scale,
+): number | undefined {
   if (heightAttr == null) return undefined;
   const s = String(heightAttr).trim();
   if (s === '') return undefined;
@@ -241,7 +262,7 @@ export function resolveHeightPx(heightAttr: string | undefined, parentPx: number
     if (parentPx === undefined) return undefined;
     return Math.round((parseFloat(s) / 100) * parentPx);
   }
-  const css = xoneLengthToCss(s, scale);
+  const css = xoneLengthToCss(s, normalizeScale(scale).h);
   if (!css) return undefined;
   const m = /^(-?\d+(?:\.\d+)?)px$/.exec(css);
   return m ? Math.round(parseFloat(m[1])) : undefined;
