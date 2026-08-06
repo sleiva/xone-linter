@@ -1,6 +1,6 @@
 /** Traduce atributos de estilo de XOne a propiedades CSS web. Funciones puras. */
 
-import { APP_FONT_FACTOR_DEFAULT, fieldFontSize } from './fontSize.js';
+import { APP_FONT_FACTOR_DEFAULT, fieldFontSize, toCssPx } from './fontSize.js';
 
 const CSS_NAMED_COLORS = new Set<string>([
   'transparent','currentcolor',
@@ -172,8 +172,9 @@ export function styleDeclsFromAttributes(
   // ningún factor de escala). Es la cascada del CAMPO más el factor de app — ver `fontSize.ts`.
   // La etiqueta lleva el SUYO inline en el `<label>` (el wrapper no le sirve: la regla
   // `.xone-prop>label` del BASE_CSS gana a la herencia).
+  // el tamaño sale en PUNTOS del oráculo y el zoom del render se aplica al pasar a px (corte #23)
   const fs = fieldFontSize(attrs, fontFactor);
-  if (fs !== undefined) out['font-size'] = `${fs}px`;
+  if (fs !== undefined) out['font-size'] = `${toCssPx(fs)}px`;
   if (attrs.fontbold === 'true') out['font-weight'] = 'bold';
   if (attrs['textfont-bold'] === 'true') out['font-weight'] = 'bold';
   if (attrs.fontname) {

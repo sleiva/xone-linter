@@ -3,7 +3,7 @@ import { groupKey, isDrawerGroup, isFixedGroup, isRenderablePage, type UIGroup }
 import type { UIFrame } from './Frame.js';
 import type { UIControl } from './Control.js';
 import { styleDeclsFromAttributes, declsToInline, xoneImgToCss, xoneLengthToCss, xoneColorToCss, resolveHeightPx, textBorderDecls, parseAlign, normalizeScale, type ResolveImg, type Scale } from './styleMap.js';
-import { APP_FONT_FACTOR_DEFAULT, PROP_FONT_SIZE_DEFAULT, labelFontSize, labelBoxWidth } from './fontSize.js';
+import { APP_FONT_FACTOR_DEFAULT, PROP_FONT_SIZE_DEFAULT, labelFontSize, labelBoxWidth, toCssPx } from './fontSize.js';
 
 // max-width:420px es el mismo RENDER_WIDTH usado por XoneRuntime.renderHtml para calcular
 // el scale (RENDER_WIDTH / resolution-width) — mantener ambos valores sincronizados.
@@ -31,11 +31,12 @@ body{font-family:sans-serif;font-size:17px;margin:0;padding:8px;background:#eee}
 .xone-row>*{box-sizing:border-box;min-width:0}
 /* la fila de un solo hijo no debe romper la cadena de height:% — el hijo resuelve contra el frame/section */
 .xone-row:has(> :only-child){display:contents}
-/* 12px = el default LITERAL de propFontoSize/labelFontoSize del oráculo (EditPropertyControl.mm
-   :780-781, sin pasar por calculateSizeFont). Va en el CSS y no inline para que sólo afecte a
-   props: los contenedores comparten styleDeclsFromAttributes y no tienen cuerpo propio. */
-.xone-prop{display:flex;flex-direction:column;margin:4px 0;font-size:12px}
-.xone-prop>label{display:block;font-size:12px;color:#555}
+/* 11.5px = los 12 PUNTOS del default literal de propFontoSize/labelFontoSize del oráculo
+   (EditPropertyControl.mm:780-781, sin pasar por calculateSizeFont) con el zoom del render del
+   corte #23. Va en el CSS y no inline para que sólo afecte a props: los contenedores comparten
+   styleDeclsFromAttributes y no tienen cuerpo propio. */
+.xone-prop{display:flex;flex-direction:column;margin:4px 0;font-size:11.5px}
+.xone-prop>label{display:block;font-size:11.5px;color:#555}
 /* sin column-gap: el oráculo pone el campo exactamente en lmargin + lbw (corte #22) */
 .xone-prop--hlabel{flex-direction:row}
 .xone-prop--hlabel>label{flex:0 0 auto;align-self:center}
@@ -636,7 +637,7 @@ function renderControl(
   // INLINE — la regla `.xone-prop>label` del BASE_CSS gana a la herencia del wrapper, que es
   // lo que hacía que las 11 etiquetas de `EspecialFontSize` salieran todas iguales.
   const lblSize = labelFontSize(c.attributes, activeFontFactor);
-  const lblFont = lblSize !== undefined ? `font-size:${lblSize}px` : '';
+  const lblFont = lblSize !== undefined ? `font-size:${toCssPx(lblSize)}px` : '';
   const lblStyle = (extra?: string) => {
     const decls = [extra, lblFont].filter(Boolean).join(';');
     return decls ? ` style="${decls}"` : '';
@@ -647,7 +648,7 @@ function renderControl(
   // campo. La recta del ancho por carácter está calibrada con 9 medidas del device; ver
   // `fontSize.ts`. Sin holgura: el oráculo pone el campo justo en `lmargin + lbw`.
   const lblBox = inlineLabel
-    ? labelBoxWidth(Number.isFinite(lwRaw) ? lwRaw : undefined, lblSize ?? PROP_FONT_SIZE_DEFAULT)
+    ? toCssPx(labelBoxWidth(Number.isFinite(lwRaw) ? lwRaw : undefined, lblSize ?? PROP_FONT_SIZE_DEFAULT))
     : undefined;
   const label = hasLabel
     ? `<label${lblStyle(lblBox !== undefined ? `width:${lblBox}px` : undefined)}>${esc(title)}</label>`

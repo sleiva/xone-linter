@@ -95,7 +95,28 @@ export function labelCharWidth(labelFontSizePx: number): number {
 /** Ancho de la CAJA de la etiqueta en línea: `labelwidth × ancho de carácter`. Es también la x
  *  del campo respecto al borde del prop, porque el `−4` del frame de la etiqueta
  *  (`EditTextProperty.mm:1380`) se cancela con el `+4` del campo (`:1414`) ⇒ **sin holgura**. */
-export function labelBoxWidth(labelWidth: number | undefined, labelFontSizePx: number): number {
+export function labelBoxWidth(labelWidth: number | undefined, labelFontSizePt: number): number {
   const lw = labelWidth ?? LABEL_WIDTH_DEFAULT;
-  return +(lw * labelCharWidth(labelFontSizePx)).toFixed(1);
+  // sin redondear: el único redondeo lo hace `toCssPx` al pasar a px (si no, se acumulan)
+  return lw * labelCharWidth(labelFontSizePt);
+}
+
+/** **ZOOM del render** (corte #23). Desde el corte #19 el render modela un dispositivo de
+ *  referencia de 440 pt de ancho y lo dibuja a 420 px CSS ⇒ es ese dispositivo con un zoom
+ *  uniforme. Las LONGITUDES ya lo llevan dentro (`scaleW = 420/resW` es `(420/440) × (440/resW)`),
+ *  pero los tamaños de letra se emitían 1 pt → 1 px, así que la tipografía salía absolutamente
+ *  exacta y **+4.8% relativa a la caja** — medido: en `EspecialColores` la etiqueta ocupaba 0.3403
+ *  del ancho del prop donde el device da 0.3248.
+ *
+ *  Los helpers de este módulo siguen devolviendo **puntos del oráculo** (la unidad en la que están
+ *  calibrados contra el device); el zoom se aplica **una sola vez, al pasar a CSS**, con `toCssPx`.
+ *  Ojo: en el ancho de la etiqueta hay que zoomear el **resultado**, no el tamaño de entrada,
+ *  porque su recta tiene un término constante en pt que no debe escalar con la pendiente. */
+export const RENDER_WIDTH_PX = 420;
+export const DEVICE_WIDTH_PT = 440;
+export const RENDER_ZOOM = RENDER_WIDTH_PX / DEVICE_WIDTH_PT;
+
+/** Puntos del oráculo → px del render, redondeado a un decimal. */
+export function toCssPx(pt: number): number {
+  return +(pt * RENDER_ZOOM).toFixed(1);
 }
