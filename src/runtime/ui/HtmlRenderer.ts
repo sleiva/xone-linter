@@ -662,6 +662,20 @@ function renderControl(
   // con clase (menufijo) sin bgcolor no necesita override (nunca tuvo fondo que suprimir).
   // Un botón SIN img conserva su bgcolor (p. ej. LOGUEARSE verde/amarillo).
   if (base === 'B' && c.attributes.img && c.attributes.bgcolor) mergedOv = { ...mergedOv, 'background-color': 'transparent' };
+  // Un BOTÓN no editable se pinta con `bgcolor-disabled` (corte #37): el oráculo lo instala como
+  // fondo del estado `UIControlStateDisabled` (`EditButtonProperty.mm:434-437`) y el estado lo pone
+  // `uiPropButton.enabled = !readonly` (`:1237`), donde `readonly` sale de `locked`/`disableedit`/
+  // `readonly` — que el simulador ya resuelve en `c.editable`. Device: el `Continuar` de
+  // `AliviaApp/Login` (`disableedit="MAP_CAN_LOGIN=0"`) mide #BDB2D3 = el `bgcolor-disabled:#b6aacf`
+  // declarado, y el render lo pintaba en el #8A54FF normal.
+  //
+  // ★ Sólo el botón: `bgcolor-disabled` se lee ÚNICAMENTE en `EditButtonProperty`. Los props de
+  // texto tienen su propia familia (`text-bgcolor-disabled`/`text-forecolor-disabled`,
+  // `Constants.h:245`/`:249`), que va al ELEMENTO de texto y no está medida.
+  if (base === 'B' && !c.editable) {
+    const offBg = xoneColorToCss(c.attributes['bgcolor-disabled']);
+    if (offBg) mergedOv = { ...mergedOv, 'background-color': offBg };
+  }
   const style = inline(c.attributes, scale, false, mergedOv, resolveImg);
   const title = resolve(c.title ?? '');
   // G5: la etiqueta va EN LÍNEA a la izquierda con ancho `labelwidth` en caracteres
