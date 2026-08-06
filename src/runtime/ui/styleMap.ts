@@ -179,7 +179,13 @@ export function styleDeclsFromAttributes(
   if (attrs['textfont-bold'] === 'true') out['font-weight'] = 'bold';
   if (attrs.fontname) {
     const safe = attrs.fontname.replace(/["';<>]/g, '').trim();
-    if (safe) out['font-family'] = safe;
+    // Respaldo obligatorio (corte #28): en iOS la familia se resuelve con `fontWithName:size:`
+    // y, si no está instalada, devuelve nil ⇒ UIKit CONSERVA la fuente de sistema (SF). El peor
+    // caso del device es San Francisco. El navegador, en cambio, NO hereda el `sans-serif` del
+    // body cuando la familia es desconocida: cae a su fuente por defecto, que en Chrome headless
+    // es una serif — eso pintaba `AliviaApp/Login` entero en Times. Y `sans-serif` es además la
+    // métrica sobre la que están calibradas las rectas de la campaña (ancho de "M", alto de fila).
+    if (safe) out['font-family'] = `${safe},sans-serif`;
   }
   // elevation (doc: sombra estilo Material) → box-shadow; escala con el eje VERTICAL
   // (`EditFrameControl.mm:413`: `elevation * [self appScaleFactorHeight]`).
@@ -205,15 +211,43 @@ export function styleDeclsFromAttributes(
   return out;
 }
 
-const TEXT_BORDER_SIDES: Array<[string, string]> = [
-  ['text-border-top', 'border-top'],
-  ['text-border-bottom', 'border-bottom'],
-  ['text-border-left', 'border-left'],
-  ['text-border-right', 'border-right'],
+const TEXT_BORDER_SIDES: Array<[string, string, 'top' | 'bottom' | 'left' | 'right']> = [
+  ['text-border-top', 'border-top', 'top'],
+  ['text-border-bottom', 'border-bottom', 'bottom'],
+  ['text-border-left', 'border-left', 'left'],
+  ['text-border-right', 'border-right', 'right'],
 ];
 
 function isTrueAttr(v: string | undefined): boolean {
   return (v ?? '').trim().toLowerCase() === 'true';
+}
+
+/** Tabla de verdad de los cuatro lados del borde de texto — la ÚNICA (corte #29).
+ *
+ *  Oráculo `EditPropertyControl.mm:1274-1310` (y su gemelo `EditTextProperty.mm:618-650`):
+ *    1. arranque: los cuatro a `true` (`EditTextProperty.mm:71-74`, init)
+ *    2. `text-border` presente ⇒ los cuatro **de golpe** = (valor == "true")  (`:1276-1280`)
+ *    3. cada `text-border-<lado>` presente ⇒ **sobreescribe ese lado**       (`:1297-1307`)
+ *    4. `isFullTextBorder` = AND de los cuatro                                (`:1310`)
+ *
+ *  El paso 3 es el que faltaba: `text-border:true` + los cuatro lados a `false` (el
+ *  `inputText` de AliviaApp) pintaba la caja completa, y el device no pinta nada.
+ *
+ *  Divergencia acotada: en `EditTextProperty` el paso 3 está gateado por `isFullTextBorder`,
+ *  o sea que con `text-border:false` un lado a `true` se ignoraría. Se modela la rama sin
+ *  gate (`EditPropertyControl`): la combinación aparece 9 veces en el corpus y las 9 son del
+ *  banco propio `CalibLayout`, cero en apps reales. */
+export function textBorderSides(attrs: Record<string, string>): Record<'top' | 'bottom' | 'left' | 'right', boolean> {
+  const declared = attrs['text-border'];
+  // `text-border` se compara SIN bajar a minúsculas en el oráculo (`isEqualToString:@"true"`,
+  // :1276) mientras los lados sí (`.lowercaseString`, :1298). En el corpus no hay ni un
+  // `text-border` con mayúsculas, así que la diferencia no tiene consumidor; se respeta igual.
+  const base = declared === undefined ? true : declared.trim() === 'true';
+  const sides = { top: base, bottom: base, left: base, right: base };
+  for (const [attr, , side] of TEXT_BORDER_SIDES) {
+    if (attrs[attr] !== undefined) sides[side] = isTrueAttr(attrs[attr]);
+  }
+  return sides;
 }
 
 /** Bordes del ELEMENTO de texto (input/textarea) desde la familia `text-border*` de XOne.
@@ -229,10 +263,10 @@ export function textBorderDecls(attrs: Record<string, string>, scale = 1): Recor
   const color = xoneColorToCss(attrs['text-border-color']) ?? '#bbb';
   const width = xoneLengthToCss(attrs['text-border-width'], scale) ?? '1px';
   const out: Record<string, string> = { 'border-style': 'none' };
-  const sides = isTrueAttr(attrs['text-border'])
-    ? ['border-top', 'border-bottom', 'border-left', 'border-right']
-    : TEXT_BORDER_SIDES.filter(([a]) => isTrueAttr(attrs[a])).map(([, css]) => css);
-  for (const s of sides) out[s] = `${width} solid ${color}`;
+  const on = textBorderSides(attrs);
+  for (const [, css, side] of TEXT_BORDER_SIDES) {
+    if (on[side]) out[css] = `${width} solid ${color}`;
+  }
   return out;
 }
 
@@ -245,10 +279,15 @@ export function textBorderDecls(attrs: Record<string, string>, scale = 1): Recor
  *  (corte #25): con borde completo el campo se desplaza `+bw` y pierde `2bw+1` de ancho
  *  (`EditTextProperty.mm:1408-1414`), o sea que su borde derecho entra `bw+1`. */
 export function fullTextBorderWidth(attrs: Record<string, string>): number | undefined {
-  const declared = attrs['text-border'];
-  const full = isTrueAttr(declared)
-    || (declared === undefined && TEXT_BORDER_SIDES.every(([a]) => isTrueAttr(attrs[a])));
-  if (!full) return undefined;
+  // El AND se calcula sobre la MISMA tabla de verdad que el pintado (corte #29): antes esta
+  // función daba borde completo con `text-border:true` aunque los cuatro lados estuvieran
+  // apagados, y le aplicaba a un campo sin borde el inset del corte #25 (+1 pt a la izquierda
+  // y 2 pt menos de ancho).
+  const sides = textBorderSides(attrs);
+  const declaredAny = attrs['text-border'] !== undefined
+    || TEXT_BORDER_SIDES.some(([a]) => attrs[a] !== undefined);
+  if (!declaredAny) return undefined;
+  if (!(sides.top && sides.bottom && sides.left && sides.right)) return undefined;
   const raw = attrs['text-border-width'];
   if (raw === undefined) return 1;
   const m = /^\s*[+-]?\d+(?:\.\d+)?/.exec(raw);   // atof: prefijo numérico, ignora el sufijo `p`

@@ -15,12 +15,23 @@ import { APP_FONT_FACTOR_DEFAULT, PROP_FONT_SIZE_DEFAULT, TEXT_INSET_PT, FIELD_I
 // full-width llegan borde a borde (cabecera/barra inferior = device) y el contenido cabe en
 // alto. `box-sizing:border-box` se mantiene por si una clase CSS añade `border`. La coll queda
 // en content-box a propósito: su contenido = RENDER_WIDTH (420px).
-// Colores del switch por defecto del framework para type="NC" (sourceados, NO adivinar):
-// track ON/OFF = UIColor.red.withAlphaComponent(0.6)  → iXonev2/Controls/Switch/XoneEditNCProperty.swift:34-35
-// thumb OFF = rgb(249,249,249), thumb ON = rgb(52,109,241) → iXonev2/Controls/Switch/XoneMaterialSwitch.swift:66-70
-const SWITCH_TRACK = 'rgba(255,0,0,0.6)';
-const SWITCH_THUMB_OFF = '#F9F9F9';
-const SWITCH_THUMB_ON = '#346DF1';
+// Colores del switch dibujado para `check-type="switch"`.
+//
+// ★ CORRECCIÓN de cita (corte #30): estas constantes se documentaron como "el switch por
+// defecto del framework, sourceadas de XoneEditNCProperty.swift / XoneMaterialSwitch.swift".
+// Esos ficheros NO existen en iXonev2 y el default no es un switch: es un `MICheckBox` con
+// imágenes (ver `case 'NC'`). La pastilla roja que se veía en el device de MyAllXOne era el
+// PNG `icons/bt_uncheck.png` de la propia app —una pastilla roja dibujada— servido por
+// `img-unchecked`, no un control del framework. El switch nativo real sí existe, pero solo con
+// `check-type="switch"` (`MICheckBox.mm:141-190`), así que las constantes pasan a ser las
+// SUYAS, sourceadas de `applySwitchColors` (`:169-184`): track ON #7C3AED, track OFF #E7E0EC
+// y thumb blanco en los dos estados, con overrides `track-color` / `track-color-checked` /
+// `thumb-color` / `thumb-color-checked`. Sin consumidor en el corpus (0 de 2841 props), así
+// que no hay medida de device que calibrar: son los defaults literales del oráculo.
+const SWITCH_TRACK = '#E7E0EC';
+const SWITCH_THUMB_OFF = '#FFFFFF';
+const SWITCH_THUMB_ON = '#FFFFFF';
+const SWITCH_TRACK_ON = '#7C3AED';
 const BASE_CSS = `
 body{font-family:sans-serif;font-size:17px;margin:0;padding:8px;background:#eee}
 .xone-coll{background:#fff;max-width:420px;margin:0 auto;border:1px solid #ccc}
@@ -51,11 +62,21 @@ body{font-family:sans-serif;font-size:17px;margin:0;padding:8px;background:#eee}
 .xone-btn-icon{max-width:100%;max-height:100%;object-fit:contain}
 .xone-prop>input:not([type=checkbox]),.xone-prop>textarea{border:1px solid #bbb;text-align:inherit}
 .xone-prop>input[type=checkbox]{align-self:flex-start}
-.xone-switch{position:relative;display:inline-block;width:40px;height:24px;flex:0 0 auto;align-self:center}
-.xone-switch__track{position:absolute;left:12px;width:16px;top:5px;height:14px;border-radius:7px;background:${SWITCH_TRACK}}
-.xone-switch__thumb{position:absolute;top:0;width:24px;height:24px;border-radius:50%;box-shadow:0 1px 2px rgba(0,0,0,.4)}
-.xone-switch[data-on="0"] .xone-switch__thumb{left:0;background:${SWITCH_THUMB_OFF}}
-.xone-switch[data-on="1"] .xone-switch__thumb{left:16px;background:${SWITCH_THUMB_ON}}
+/* switch de check-type="switch": el UISwitch nativo mide 51x31 pt y se centra vertical
+   pegado a la izquierda, escalando si la fila es mas baja (MICheckBox.mm:198-213) */
+.xone-switch{position:relative;display:inline-block;width:48.7px;height:29.6px;flex:0 0 auto;align-self:center}
+.xone-switch__track{position:absolute;inset:0;border-radius:14.8px;background:${SWITCH_TRACK}}
+.xone-switch__thumb{position:absolute;top:1.9px;width:25.8px;height:25.8px;border-radius:50%;box-shadow:0 1px 2px rgba(0,0,0,.4)}
+.xone-switch[data-on="0"] .xone-switch__thumb{left:1.9px;background:${SWITCH_THUMB_OFF}}
+.xone-switch[data-on="1"] .xone-switch__track{background:${SWITCH_TRACK_ON}}
+.xone-switch[data-on="1"] .xone-switch__thumb{left:21px;background:${SWITCH_THUMB_ON}}
+/* casilla clásica de un NC (corte #30): caja cuadrada a la IZQUIERDA con la etiqueta detrás.
+   El tamaño lo pone el estilo inline (lado calculado); aquí solo va lo que no depende del prop.
+   flex:none porque en la fila del prop la caja NO se estira: el oráculo le da un frame fijo. */
+.xone-check{flex:none;align-self:flex-start;object-fit:fill;box-sizing:border-box;display:flex;align-items:center;justify-content:center}
+/* la marca de la casilla sin imágenes es el xone_img_checkv2.png teñido llenando la caja;
+   se aproxima con un tick dibujado en el mismo color del borde (markColor) */
+.xone-check__mark{width:60%;height:32%;border:solid currentColor;border-width:0 0 2px 2px;transform:rotate(-45deg) translate(6%,-28%)}
 .xone-progress{position:relative;width:100%;height:4px;border-radius:2px;background:#E5E5EA;overflow:hidden;align-self:center;flex:0 0 auto}
 .xone-progress__fill{height:100%;border-radius:2px;background:#007AFF}
 .xone-slider{position:relative;width:100%;height:20px;align-self:center;flex:0 0 auto}
@@ -453,6 +474,16 @@ function imageFit(base: string, attrs: Record<string, string>): string {
   return attrs['img-aspect-ratio'] === 'fill' ? 'cover' : 'contain';
 }
 
+/** ¿La imagen de una casilla `NC` conserva su aspecto? (corte #30)
+ *  `createSwitchField` pasa el `imageView` a AspectFit si `imgKeepsAspectRatio ||
+ *  keepsAspectRatio` (`EditPropertyControl.mm:2710-2713`); los dos flags salen de
+ *  `img-keep-aspect-ratio` / `keep-aspect-ratio` (`Constants.h:374-375`) y defaultean a NO
+ *  (`:555`) ⇒ por defecto la imagen ESTIRA a la caja, como el `contentMode` ScaleToFill +
+ *  alineación Fill del propio botón (`MICheckBox.mm:87-92`). */
+function checkKeepsAspect(attrs: Record<string, string>): boolean {
+  return attrs['img-keep-aspect-ratio'] === 'true' || attrs['keep-aspect-ratio'] === 'true';
+}
+
 function formatDateValue(value: unknown, base: string): string | undefined {
   if (!(value instanceof Date) || Number.isNaN(value.getTime())) return undefined;
   const p = (n: number) => String(n).padStart(2, '0');
@@ -841,10 +872,55 @@ function renderControl(
       return wrap(`${lbl}<span${sty}>${esc(val)}</span>`);
     }
     case 'NC': {
-      // Switch por defecto del framework (XoneEditNCProperty → XoneMaterialSwitch): track rojo,
-      // thumb izquierda(off)/derecha(on). Estático: refleja el valor, sin interactividad.
+      // ★ CORRECCIÓN de cita (corte #30): aquí se citaba "XoneEditNCProperty →
+      // XoneMaterialSwitch". Esas clases NO existen en el framework — mismo tipo de cita falsa
+      // que la del corte #16. El control real es un `MICheckBox` (un UIButton con dos imágenes)
+      // y el `UISwitch` nativo solo aparece con `check-type="switch"` (`MICheckBox.mm:141-144`,
+      // rama Material 3), atributo que aparece 0 veces en los 2841 props del corpus.
       const on = Number(val) ? '1' : '0';
-      return wrap(`${label}<span class="xone-switch" data-on="${on}"><span class="xone-switch__track"></span><span class="xone-switch__thumb"></span></span>`);
+      if (c.attributes['check-type']?.trim().toLowerCase() === 'switch') {
+        // Estático: refleja el valor, sin interactividad.
+        return wrap(`${label}<span class="xone-switch" data-on="${on}"><span class="xone-switch__track"></span><span class="xone-switch__thumb"></span></span>`);
+      }
+      // Casilla clásica. Las dos imágenes salen de `img-checked`/`img-unchecked`
+      // (`EditPropertyControl.mm:2716-2733`, `createSwitchField`), y la elegida depende del
+      // valor (`setImage:forState:Selected|Normal`, `MICheckBox.mm:297-320`).
+      const chkImg = xoneImgToCss(c.attributes[on === '1' ? 'img-checked' : 'img-unchecked'], resolveImg, 'icon');
+      // Caja CUADRADA (`EditPropertyControl.mm:1708-1740`):
+      //   side = min(alto de fila, ancho de fila, img-width·sw, img-height·sw)   (:1714-1726)
+      //   frame = (lmargin, 1, side, side − 2)                                   (:1737-1738)
+      // Ojo: `img-height` también se escala con el factor de ANCHO (`:1724`), no con el de alto.
+      // El ancho de fila casi siempre es un `%` que no se resuelve estáticamente ⇒ ese término
+      // se omite cuando no hay base conocida (y con `img-width` presente nunca manda: es el
+      // menor en todo el corpus).
+      const sides: number[] = [];
+      for (const a of ['img-width', 'img-height'] as const) {
+        const l = xoneLengthToCss(c.attributes[a], scale.w);
+        if (l?.endsWith('px')) sides.push(parseFloat(l));
+      }
+      const rowH = resolveHeightPx(c.attributes.height, parentPx, scale);
+      if (rowH !== undefined) sides.push(rowH);
+      const side = sides.length ? Math.min(...sides) : undefined;
+      // Sin imágenes el `MICheckBox` se dibuja solo: borde de 1 pt, esquina de 3 y color
+      // `markColor` (= `forecolor` cuando hay versión nueva y no hay imagen,
+      // `EditPropertyControl.mm:1150-1155`; default `darkGray`), y marcado añade el
+      // `xone_img_checkv2.png` teñido llenando la caja (`MICheckBox.mm:344-378`). Con imagen el
+      // borde se apaga (`setImageChecked:` `:299`).
+      const mark = xoneColorToCss(c.attributes.forecolor) ?? '#555';
+      const boxDecls = [
+        side !== undefined ? `width:${+side.toFixed(1)}px;height:${+(side - toCssPx(2)).toFixed(1)}px` : 'aspect-ratio:1;height:calc(100% - 2px)',
+        `margin-top:${toCssPx(1)}px`,
+        chkImg ? '' : `border:${toCssPx(1)}px solid ${mark};border-radius:${toCssPx(3)}px`,
+      ].filter(Boolean).join(';');
+      const box = chkImg
+        // `contentMode` por defecto es ScaleToFill con alineación Fill en los dos ejes
+        // (`MICheckBox.mm:87-92`) ⇒ la imagen ESTIRA; solo con `img-keeps-aspect-ratio` /
+        // `keeps-aspect-ratio` pasa a AspectFit (`EditPropertyControl.mm:2710-2713`).
+        ? `<img src="${esc(chkImg)}" alt="" class="xone-check" style="${boxDecls}${checkKeepsAspect(c.attributes) ? ';object-fit:contain' : ''}">`
+        : `<span class="xone-check" style="${boxDecls}">${on === '1' ? '<span class="xone-check__mark"></span>' : ''}</span>`;
+      // La etiqueta va DETRÁS de la caja y sin holgura: `lblGap = 0` fuera del modo switch
+      // (`:1772-1773`), y su x arranca en `caja.right`.
+      return wrap(`${box}${label}`);
     }
     case 'N':
     case 'TN': {
@@ -1026,6 +1102,14 @@ function inline(
   attrs: Record<string, string>, scale: Scale, container = false, overrides?: Record<string, string>, resolveImg?: ResolveImg,
 ): string {
   const decls = styleDeclsFromAttributes(attrs, scale, resolveImg, activeFontFactor);
+  // El `align` de un CONTROL solo alinea TEXTO (corte #31): el oráculo lo traduce a
+  // `textAlignment` de la etiqueta (`EditPropertyControl.mm:740-752`) y del campo
+  // (`EditTextProperty.mm:2572-2588`), sin nada vertical ni flex — la componente
+  // `top|center|bottom` existe solo en el `parseAlign` de CONTENEDORES
+  // (`EditFrameControl.mm:1805-1823`). `alignToCss` es genérica y emite el bloque flex para los
+  // dos, así que en un prop hay que retirarlo: dejarlo cambia el EJE de la fila etiqueta+campo
+  // y manda la etiqueta encima (device `al4.png`: a la derecha de la casilla).
+  if (!container) for (const k of ['display', 'flex-direction', 'justify-content', 'align-items']) delete decls[k];
   // align de CONTENEDOR: la horizontal también posiciona a los hijos (iOS centra los
   // controles del frame, no solo su texto). La vertical de F1 ya emite el flex completo
   // (display+flex-direction+justify-content+align-items) y tiene prioridad — no duplicar.
