@@ -131,3 +131,14 @@ export function toCssPx(pt: number): number {
  *  ~11-12 pt antes del borde del prop, y este término explica 10 de ellos (el resto, la rama de
  *  `isFullTextBorder`, no se separa del ruido del `%`; ver el spec del corte #24). */
 export const TEXT_INSET_PT = 10;
+
+/** Descuento VERTICAL del campo de texto: el oráculo le da `_calculateHeight − 4`
+ *  (`EditTextProperty.mm:1432` para el campo y `:1603` para el multilínea), donde
+ *  `_calculateHeight` es el alto del propio prop (`:1265`). El campo arranca en
+ *  `y = ofY` (`:1418`, `ofY = textBorderWidth` si el borde de texto es completo, 0 si no),
+ *  así que el reparto es **`ofY` arriba y `4 − ofY` abajo**.
+ *
+ *  Device-medido en la fila de `EspecialColores` que lleva `bgcolor` en el WRAPPER —la única
+ *  forma de ver la caja del prop y la del campo en la misma fila—: prop **159.33 → 181.00**
+ *  (22.00 pt) y campo **160.33 → 178.0** ⇒ 1 pt arriba, 18 de alto (= 22 − 4) y 3 abajo. */
+export const FIELD_INSET_PT = 4;

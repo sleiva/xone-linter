@@ -3,7 +3,7 @@ import { groupKey, isDrawerGroup, isFixedGroup, isRenderablePage, type UIGroup }
 import type { UIFrame } from './Frame.js';
 import type { UIControl } from './Control.js';
 import { styleDeclsFromAttributes, declsToInline, xoneImgToCss, xoneLengthToCss, xoneColorToCss, resolveHeightPx, textBorderDecls, fullTextBorderWidth, parseAlign, normalizeScale, type ResolveImg, type Scale } from './styleMap.js';
-import { APP_FONT_FACTOR_DEFAULT, PROP_FONT_SIZE_DEFAULT, TEXT_INSET_PT, labelFontSize, labelBoxWidth, toCssPx } from './fontSize.js';
+import { APP_FONT_FACTOR_DEFAULT, PROP_FONT_SIZE_DEFAULT, TEXT_INSET_PT, FIELD_INSET_PT, labelFontSize, labelBoxWidth, toCssPx } from './fontSize.js';
 
 // max-width:420px es el mismo RENDER_WIDTH usado por XoneRuntime.renderHtml para calcular
 // el scale (RENDER_WIDTH / resolution-width) — mantener ambos valores sincronizados.
@@ -678,10 +678,19 @@ function renderControl(
   // `margin-right:bw+1`: si el campo es el último elemento su borde derecho entra `bw+1`, y si
   // detrás va el icono del combo, el icono no se mueve —lo fija el padding de la fila— y el que
   // encoge es el campo, que es exactamente lo que hace el oráculo (corte #25).
+  // Inset del CAMPO respecto a la caja del prop, en las dos direcciones (cortes #25 y #26):
+  //   · horizontal, sólo con borde de texto COMPLETO: `+bw` a la izquierda y `bw+1` a la derecha
+  //     (`EditTextProperty.mm:1408-1414`).
+  //   · vertical, SIEMPRE: el alto es `_calculateHeight − 4` (`:1432`, y `:1603` el multilínea) y
+  //     el campo arranca en `y = ofY` ⇒ `ofY` arriba y `4 − ofY` abajo, con `ofY = bw` (0 sin
+  //     borde completo). Device: prop de 22.00 pt con el campo en 1 → 19 (18 de alto).
   const tbw = fullTextBorderWidth(c.attributes);
-  const tbInset = tbw !== undefined
-    ? `margin-left:${toCssPx(tbw)}px;margin-right:${toCssPx(tbw + 1)}px`
-    : '';
+  const ofY = tbw ?? 0;
+  const tbInset = [
+    ofY ? `margin-top:${toCssPx(ofY)}px` : '',
+    `margin-bottom:${toCssPx(FIELD_INSET_PT - ofY)}px`,
+    tbw !== undefined ? `margin-left:${toCssPx(tbw)}px;margin-right:${toCssPx(tbw + 1)}px` : '',
+  ].filter(Boolean).join(';');
   const ebDecls = [declsToInline(textBorderDecls(c.attributes, scale.w)), tbInset].filter(Boolean).join(';');
   const eb = ebDecls ? ` style="${ebDecls}"` : '';
 
