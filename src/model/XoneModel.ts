@@ -129,4 +129,9 @@ export interface XoneProjectModel {
    *  `path`/`img` que el device busca en el árbol real de la app (p. ej. `icons/`); ver
    *  `pickImagePath` para cómo se elige entre varias rutas según el contexto (icono vs. data). */
   imageIndex: Record<string, string[]>;
+  /** nombre de familia (basename SIN extensión, tal cual está en el fichero) -> ruta relativa
+   *  POSIX del `.ttf`/`.otf`. La app EMBARCA sus fuentes (iOS las registra por `UIAppFonts` y
+   *  `fontname` cita el nombre PostScript, que en la práctica es el basename) y el render las
+   *  sirve con `@font-face` para que el navegador use SUS métricas — corte #33. */
+  fontIndex: Record<string, string>;
 }

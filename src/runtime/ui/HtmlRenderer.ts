@@ -54,8 +54,13 @@ body{font-family:sans-serif;font-size:17px;margin:0;padding:8px;background:#eee}
    foto anterior, que es elemento REEMPLAZADO (paso 7), lo tapaba — y la regla de abajo, que
    pone position:relative a los props de imagen para colgar .xone-photo-actions, promocionaba
    la foto al paso 8, por encima de TODO lo posterior. Corte #32, AliviaApp/EntradaApp perdia
-   asi tres controles. */
-.xone-prop{position:relative;display:flex;flex-direction:column;margin:4px 0;font-size:11.5px}
+   asi tres controles.
+   NO lleva margen vertical (corte #34): el oraculo coloca los props por frames CALCULADOS y las
+   filas quedan CONTIGUAS. Medido en el banco xone_app/CalibLayout, donde cada fila tiene un
+   bgcolor opaco: en el device la distancia entre bandas consecutivas es EXACTAMENTE el alto de
+   fila del corte #27 (24.67 / 27.00 / 31.67 / 36.33 / 48.33 pt), sin hueco; el render metia
+   4 px (4.19 pt) entre cada par de props, visibles en la misma medida. */
+.xone-prop{position:relative;display:flex;flex-direction:column;font-size:11.5px}
 .xone-prop>label{display:block;font-size:11.5px;color:#555}
 /* sin column-gap: el oráculo pone el campo exactamente en lmargin + lbw (corte #22) */
 .xone-prop--hlabel{flex-direction:row}
@@ -160,15 +165,24 @@ let activeFontFactor = APP_FONT_FACTOR_DEFAULT;
 
 export function renderViewHtml(
   view: ViewState, translatedCss: string, resolve: Resolve = identity,
-  opts: { scale?: number | Scale; height?: number; toolbar?: ToolbarOpts; resolveImg?: ResolveImg; fontFactor?: number } = {},
+  opts: {
+    scale?: number | Scale; height?: number; toolbar?: ToolbarOpts; resolveImg?: ResolveImg;
+    fontFactor?: number; fontFaces?: Record<string, string>;
+  } = {},
 ): string {
   // un escalar sigue valiendo y significa "los dos ejes iguales" (compatibilidad)
   const scale = normalizeScale(opts.scale);
   activeFontFactor = opts.fontFactor ?? APP_FONT_FACTOR_DEFAULT;
   const inner = renderColl(view, resolve, scale, opts.height, opts.toolbar, opts.resolveImg);
   const css = opts.height !== undefined ? `${BASE_CSS}\n${VIEWPORT_CSS}` : BASE_CSS;
+  // Fuentes EMBARCADAS por la app (corte #33). El device las registra y las usa, así que la
+  // maqueta vertical sale con SUS métricas: DM Sans avanza 1.30 por línea donde la sans de
+  // respaldo del navegador avanza 1.14, y eso descuadraba la cadena entera de cualquier pantalla
+  // con texto de varias líneas (device 47 pt de interlínea en un título de 36, render 41).
+  // Sirviendo el fichero real no hay que modelar nada: las métricas vienen con la fuente.
+  const faces = fontFaceCss(opts.fontFaces);
   return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(resolve(view.title ?? view.collName))}</title>`
-    + `<style>${css}\n${translatedCss}</style></head><body>${inner}</body></html>`;
+    + `<style>${faces}${css}\n${translatedCss}</style></head><body>${inner}</body></html>`;
 }
 
 function groupLabel(g: UIGroup, resolve: Resolve): string {
@@ -1133,6 +1147,28 @@ function inline(
   if (overrides) Object.assign(decls, overrides);
   const s = declsToInline(decls);
   return s ? ` style="${s}"` : '';
+}
+
+/** Reglas `@font-face` de las fuentes que embarca la app (corte #33).
+ *
+ *  La familia es el basename del fichero, que es lo que cita `fontname` en el XML/CSS de la app
+ *  (en iOS `fontWithName:` usa el nombre PostScript y para estos ficheros coincide). Así la
+ *  declaración del prop —`font-family:DMSans-Regular,sans-serif`, corte #28— la encuentra.
+ *
+ *  La ruta es relativa, igual que las imágenes (`src="icons/…"`), así que el HTML tiene que
+ *  escribirse DENTRO de la carpeta de la app para que el navegador las cargue. */
+function fontFaceCss(faces: Record<string, string> | undefined): string {
+  if (!faces) return '';
+  const out: string[] = [];
+  for (const [family, path] of Object.entries(faces)) {
+    // sin comillas ni paréntesis: el valor vive dentro de `url('…')` y de `font-family:'…'`
+    const fam = family.replace(/["'()<>;]/g, '').trim();
+    const url = path.replace(/["'()<>;]/g, '').trim();
+    if (!fam || !url) continue;
+    const fmt = url.toLowerCase().endsWith('.otf') ? 'opentype' : 'truetype';
+    out.push(`@font-face{font-family:'${fam}';src:url('${url}')format('${fmt}')}`);
+  }
+  return out.length ? out.join('\n') + '\n' : '';
 }
 
 function classAttr(base: string, attrs: Record<string, string>): string {

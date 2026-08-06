@@ -549,7 +549,10 @@ export class XoneRuntime {
     // (corte #18, `fontSize.ts`). Va tanto al CSS traducido como al render.
     const fontFactor = appFontFactor(this.project.app.attributes);
     const translatedCss = translateCss(rawCss, scale, (val) => resolveRawFieldMacros(val, getField), fontFactor);
-    return renderViewHtml(view, translatedCss, this.buildMacroResolver(viewColl), { scale, height, toolbar, resolveImg, fontFactor });
+    // Las fuentes que EMBARCA la app se sirven con `@font-face` para que el navegador use sus
+    // métricas, que son las del device (corte #33).
+    const fontFaces = this.project.fontIndex ?? {};
+    return renderViewHtml(view, translatedCss, this.buildMacroResolver(viewColl), { scale, height, toolbar, resolveImg, fontFactor, fontFaces });
   }
 
   private makeExecutor(vm?: VmAdapter): EventExecutor {

@@ -125,7 +125,7 @@ export class XoneProject {
     try {
       const sheet = buildStylesheet({ app, cssFiles });
       materializeCssAttributes(
-        { app, colls, jsFiles, cssFiles, resources: [], rootPath: resolved, parseErrors, imageIndex: {} },
+        { app, colls, jsFiles, cssFiles, resources: [], rootPath: resolved, parseErrors, imageIndex: {}, fontIndex: {} },
         sheet,
       );
     } catch (e) {
@@ -133,6 +133,7 @@ export class XoneProject {
     }
 
     const imageIndex = this.buildImageIndex(resolved);
+    const fontIndex = this.buildFontIndex(resolved);
 
     return new XoneProject({
       app,
@@ -143,12 +144,17 @@ export class XoneProject {
       rootPath: resolved,
       parseErrors,
       imageIndex,
+      fontIndex,
     });
   }
 
   // Extensiones de imagen que el device resuelve por nombre contra el árbol de la app
   // (p. ej. `imgbk="fondo.png"` vive de verdad en `icons/fondo.png`, resuelto por IconFolder).
   private static readonly IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp']);
+
+  /** Ficheros de fuente que la app embarca (`fonts/DMSans-Regular.ttf`…). El render los sirve con
+   *  `@font-face` para que el navegador use las métricas REALES del device (corte #33). */
+  private static readonly FONT_EXTENSIONS = new Set(['.ttf', '.otf']);
 
   /** Walk recursivo síncrono del root del proyecto: indexa basename(lowercase) -> TODAS las
    *  rutas relativas POSIX donde existe un fichero de imagen con ese nombre. Salta directorios
@@ -171,6 +177,31 @@ export class XoneProject {
         const rel = relative(rootPath, join(dir, entry.name)).split(sep).join('/');
         const base = entry.name.toLowerCase();
         (index[base] ??= []).push(rel);
+      }
+    };
+    walk(rootPath);
+    return index;
+  }
+
+  /** Índice de las fuentes EMBARCADAS por la app: familia (basename sin extensión, con su caja
+   *  original) -> ruta relativa POSIX. Mismo walk determinista que `buildImageIndex`; con dos
+   *  ficheros del mismo nombre gana el primero en orden alfabético de ruta. */
+  private static buildFontIndex(rootPath: string): Record<string, string> {
+    const index: Record<string, string> = {};
+    const walk = (dir: string): void => {
+      const entries = readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name));
+      for (const entry of entries) {
+        if (entry.isDirectory()) {
+          if (entry.name.startsWith('.')) continue;
+          walk(join(dir, entry.name));
+          continue;
+        }
+        if (!entry.isFile()) continue;
+        const ext = extname(entry.name).toLowerCase();
+        if (!this.FONT_EXTENSIONS.has(ext)) continue;
+        const family = entry.name.slice(0, entry.name.length - ext.length);
+        if (index[family] !== undefined) continue;
+        index[family] = relative(rootPath, join(dir, entry.name)).split(sep).join('/');
       }
     };
     walk(rootPath);
