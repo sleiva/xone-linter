@@ -70,10 +70,21 @@ body{font-family:sans-serif;font-size:17px;margin:0;padding:8px;background:#eee}
 .xone-prop--text{padding-right:${toCssPx(TEXT_INSET_PT)}px}
 .xone-prop--hlabel>label{flex:0 0 auto;align-self:center}
 .xone-prop>button,.xone-prop>input:not([type=checkbox]),.xone-prop>textarea{flex:1 1 auto;width:100%;box-sizing:border-box;background:transparent;color:inherit;font:inherit;min-height:0}
-.xone-prop>button{border:none;text-align:inherit}
+/* padding:0 — el navegador le da 1px 6px por defecto al elemento boton y eso NO existe en el
+   oraculo: los contentEdgeInsets de un UIButton son cero, su imagen llena los bounds y el
+   titulo se centra sin insets. Los 6px por lado impedian que el icono llenara su caja
+   (corte #36: el icono salia 18.2 de ancho en una caja de 30).
+   OJO con los comentarios de este bloque: son parte del HTML emitido y varios tests extraen
+   trozos buscando literales de marcado, asi que aqui no se escriben etiquetas. */
+.xone-prop>button{border:none;padding:0;text-align:inherit}
 .xone-prop[data-type="B"]{text-align:center}
 .xone-prop[data-type="B"]>button{display:flex;align-items:center;justify-content:center}
-.xone-btn-icon{max-width:100%;max-height:100%;object-fit:contain}
+/* El icono de un boton SOLO-ICONO no se topa por alto (corte #36): el alto del prop sale del
+   ASPECTO de la imagen (EditButtonProperty.mm:1611, alto = ancho * altoImg/anchoImg), asi que
+   toparlo con max-height lo dejaba a la mitad — la caja del boton salia de su linea de texto.
+   object-fit:fill porque la caja se DERIVA del aspecto de la imagen (fill == contain, sin
+   distorsion) y, cuando hay height declarado, el oraculo estira. */
+.xone-btn-icon{max-width:100%;object-fit:fill}
 .xone-prop>input:not([type=checkbox]),.xone-prop>textarea{border:1px solid #bbb;text-align:inherit}
 .xone-prop>input[type=checkbox]{align-self:flex-start}
 /* switch de check-type="switch": el UISwitch nativo mide 51x31 pt y se centra vertical
@@ -880,7 +891,15 @@ function renderControl(
       // altura intrínseca a los botones sin `height` (btsalirsuper, btmenuicon), que un fondo
       // colapsaría a 0. En los consumidores reales la caja y la imagen son cuadradas
       // (menufijo 84x84 / basicos.png 76x76) ⇒ contain == estirar, delta observable cero.
-      const iconImg = icon && !btnText ? `<img src="${esc(icon)}" alt="" class="xone-btn-icon">` : '';
+      // Solo-icono con `width` declarado y SIN `height`: el alto lo pone el aspecto de la imagen
+      // (`EditButtonProperty.mm:1592-1611`: `alto = ancho × altoImg/anchoImg`). `width:100%` +
+      // `height:auto` deja que el navegador lo derive del aspecto INTRÍNSECO del fichero, que es la
+      // misma fórmula sin tener que leer la cabecera del PNG. Con `height` declarado manda el alto
+      // (esa rama va antes, `:1573`) y el icono se ajusta dentro. Device: `backIcon.png` (54×46) en
+      // una caja de 31.7 pt da 27.0 de alto, y el device mide 27 (el render daba 17).
+      const iconAspect = c.attributes.width !== undefined && c.attributes.height === undefined
+        ? ' style="width:100%;height:auto"' : '';
+      const iconImg = icon && !btnText ? `<img src="${esc(icon)}" alt="" class="xone-btn-icon"${iconAspect}>` : '';
       return wrap(`<button${ro}${btnSty}>${iconImg}${btnText}</button>`);
     }
     case 'L':
