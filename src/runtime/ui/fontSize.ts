@@ -120,3 +120,14 @@ export const RENDER_ZOOM = RENDER_WIDTH_PX / DEVICE_WIDTH_PT;
 export function toCssPx(pt: number): number {
   return +(pt * RENDER_ZOOM).toFixed(1);
 }
+
+/** Inset horizontal del layout de los props de TEXTO: `xOfsset = 5` a cada lado
+ *  (`EditTextProperty.mm:1252`, constante cruda que no escala con nada), de donde sale
+ *  `textSize = frm.width − 2×xOfsset` (`:1259-1260`) como ancho disponible para etiqueta + campo.
+ *
+ *  Como la etiqueta arranca en `lmargin` y no en `xOfsset` (`:1373`) y el campo va justo detrás de
+ *  ella (`:1417`, donde el `−4` de la etiqueta se cancela con el `+4`), **los 10 pt completos
+ *  acaban de holgura a la DERECHA**. Device-medido en tres props de dos pantallas: el campo acaba
+ *  ~11-12 pt antes del borde del prop, y este término explica 10 de ellos (el resto, la rama de
+ *  `isFullTextBorder`, no se separa del ruido del `%`; ver el spec del corte #24). */
+export const TEXT_INSET_PT = 10;

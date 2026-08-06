@@ -3,7 +3,7 @@ import { groupKey, isDrawerGroup, isFixedGroup, isRenderablePage, type UIGroup }
 import type { UIFrame } from './Frame.js';
 import type { UIControl } from './Control.js';
 import { styleDeclsFromAttributes, declsToInline, xoneImgToCss, xoneLengthToCss, xoneColorToCss, resolveHeightPx, textBorderDecls, parseAlign, normalizeScale, type ResolveImg, type Scale } from './styleMap.js';
-import { APP_FONT_FACTOR_DEFAULT, PROP_FONT_SIZE_DEFAULT, labelFontSize, labelBoxWidth, toCssPx } from './fontSize.js';
+import { APP_FONT_FACTOR_DEFAULT, PROP_FONT_SIZE_DEFAULT, TEXT_INSET_PT, labelFontSize, labelBoxWidth, toCssPx } from './fontSize.js';
 
 // max-width:420px es el mismo RENDER_WIDTH usado por XoneRuntime.renderHtml para calcular
 // el scale (RENDER_WIDTH / resolution-width) — mantener ambos valores sincronizados.
@@ -39,6 +39,10 @@ body{font-family:sans-serif;font-size:17px;margin:0;padding:8px;background:#eee}
 .xone-prop>label{display:block;font-size:11.5px;color:#555}
 /* sin column-gap: el oráculo pone el campo exactamente en lmargin + lbw (corte #22) */
 .xone-prop--hlabel{flex-direction:row}
+/* Los props de TEXTO reservan a la derecha el inset del oráculo (xOfsset=5 por lado,
+   EditTextProperty.mm:1252-1260); la etiqueta va pegada a la izquierda, así que los 10 pt
+   salen todos por aquí. Sólo esta familia: los demás tipos tienen otra clase de layout. */
+.xone-prop--text{padding-right:${toCssPx(TEXT_INSET_PT)}px}
 .xone-prop--hlabel>label{flex:0 0 auto;align-self:center}
 .xone-prop>button,.xone-prop>input:not([type=checkbox]),.xone-prop>textarea{flex:1 1 auto;width:100%;box-sizing:border-box;background:transparent;color:inherit;font:inherit;min-height:0}
 .xone-prop>button{border:none;text-align:inherit}
@@ -656,8 +660,13 @@ function renderControl(
   // tooltip="" (presente pero vacío) cae a caption — no se queda en cadena vacía.
   const placeholderText = c.attributes.tooltip || c.attributes.caption;
   const ph = placeholderText ? ` placeholder="${esc(resolve(placeholderText))}"` : '';
-  const cls = classAttr(inlineLabel ? 'xone-prop xone-prop--hlabel' : 'xone-prop', c.attributes);
+  const baseCls = inlineLabel ? 'xone-prop xone-prop--hlabel' : 'xone-prop';
+  const cls = classAttr(baseCls, c.attributes);
   const wrap = (innerHtml: string) => `<div ${cls}${style} data-type="${esc(c.type)}">${innerHtml}</div>`;
+  // Los props que el runtime maqueta con `EditTextProperty` (texto y derivados, incluido el combo)
+  // reservan el inset de 10 pt a la derecha — corte #24. Los demás tipos tienen su propia clase.
+  const clsText = classAttr(`${baseCls} xone-prop--text`, c.attributes);
+  const wrapText = (innerHtml: string) => `<div ${clsText}${style} data-type="${esc(c.type)}">${innerHtml}</div>`;
   const ro = c.editable ? '' : ' disabled';
   const vm = c.attributes.viewmode;
   const val = formatDateValue(c.value, base) ?? resolve(c.value == null ? '' : String(c.value));
@@ -743,7 +752,7 @@ function renderControl(
         ? `<img src="${esc(icon)}" alt="" class="xone-select__spinner"${sty}>`
         : `<span class="xone-select__spinner">${inline ? '▾' : '🔍'}</span>`;
     }
-    return wrap(`${label}<div class="xone-select"${dis}><span class="xone-select__value">${esc(shown)}</span></div>${spinner}`);
+    return wrapText(`${label}<div class="xone-select"${dis}><span class="xone-select__value">${esc(shown)}</span></div>${spinner}`);
   }
   switch (base) {
     case 'B': {
@@ -924,8 +933,8 @@ function renderControl(
       return wrap(`${label}<div>${esc(val)}</div>`);
     case 'T':
     default:
-      if (multiline) return wrap(`${label}<textarea rows="${rows}"${ro}${ph}${eb}>${esc(val)}</textarea>`);
-      return wrap(`${label}<input value="${esc(val)}"${ro}${ph}${eb}>`);
+      if (multiline) return wrapText(`${label}<textarea rows="${rows}"${ro}${ph}${eb}>${esc(val)}</textarea>`);
+      return wrapText(`${label}<input value="${esc(val)}"${ro}${ph}${eb}>`);
   }
 }
 
