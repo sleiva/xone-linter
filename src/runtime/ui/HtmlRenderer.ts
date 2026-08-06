@@ -3,7 +3,7 @@ import { groupKey, isDrawerGroup, isFixedGroup, isRenderablePage, type UIGroup }
 import type { UIFrame } from './Frame.js';
 import type { UIControl } from './Control.js';
 import { styleDeclsFromAttributes, declsToInline, xoneImgToCss, xoneLengthToCss, xoneColorToCss, resolveHeightPx, textBorderDecls, fullTextBorderWidth, parseAlign, normalizeScale, type ResolveImg, type Scale } from './styleMap.js';
-import { APP_FONT_FACTOR_DEFAULT, PROP_FONT_SIZE_DEFAULT, TEXT_INSET_PT, FIELD_INSET_PT, labelFontSize, labelBoxWidth, toCssPx } from './fontSize.js';
+import { APP_FONT_FACTOR_DEFAULT, PROP_FONT_SIZE_DEFAULT, TEXT_INSET_PT, FIELD_INSET_PT, labelFontSize, labelBoxWidth, fieldFontSize, textRowHeightPt, toCssPx } from './fontSize.js';
 
 // max-width:420px es el mismo RENDER_WIDTH usado por XoneRuntime.renderHtml para calcular
 // el scale (RENDER_WIDTH / resolution-width) — mantener ambos valores sincronizados.
@@ -665,8 +665,22 @@ function renderControl(
   const wrap = (innerHtml: string) => `<div ${cls}${style} data-type="${esc(c.type)}">${innerHtml}</div>`;
   // Los props que el runtime maqueta con `EditTextProperty` (texto y derivados, incluido el combo)
   // reservan el inset de 10 pt a la derecha — corte #24. Los demás tipos tienen su propia clase.
+  const lines = parseInt(c.attributes.lines ?? '', 10);
+  const multiline = Number.isFinite(lines) && lines > 1;
+  const rows = lines;
   const clsText = classAttr(`${baseCls} xone-prop--text`, c.attributes);
-  const wrapText = (innerHtml: string) => `<div ${clsText}${style} data-type="${esc(c.type)}">${innerHtml}</div>`;
+  // Alto de fila de un prop de texto **sin `height` declarado** (corte #27): el oráculo lo saca del
+  // dimensionado intrínseco de UIKit (`[uiTextField sizeThatFits:] + 4`,
+  // `EditTextProperty.mm:2062-2081`), reproducido con la recta calibrada en el banco
+  // `xone_app/CalibLayout` — seis tamaños medidos en device con la clase real del corpus.
+  // No aplica al multilínea, cuyo alto sale del número de líneas.
+  const textRowOv = c.attributes.height === undefined && !multiline
+    ? { height: `${toCssPx(textRowHeightPt(fieldFontSize(c.attributes, activeFontFactor) ?? PROP_FONT_SIZE_DEFAULT))}px` }
+    : undefined;
+  const styleText = textRowOv
+    ? inline(c.attributes, scale, false, { ...mergedOv, ...textRowOv }, resolveImg)
+    : style;
+  const wrapText = (innerHtml: string) => `<div ${clsText}${styleText} data-type="${esc(c.type)}">${innerHtml}</div>`;
   const ro = c.editable ? '' : ' disabled';
   const vm = c.attributes.viewmode;
   const val = formatDateValue(c.value, base) ?? resolve(c.value == null ? '' : String(c.value));
@@ -694,9 +708,6 @@ function renderControl(
   const ebDecls = [declsToInline(textBorderDecls(c.attributes, scale.w)), tbInset].filter(Boolean).join(';');
   const eb = ebDecls ? ` style="${ebDecls}"` : '';
 
-  const lines = parseInt(c.attributes.lines ?? '', 10);
-  const multiline = Number.isFinite(lines) && lines > 1;
-  const rows = lines;
 
   if (vm && ['kanban', 'range-slider', 'mapview', 'coverflow', 'chart'].includes(vm)) {
     return wrap(`${label}<div class="xone-vm">[${esc(vm)}] ${esc(c.name)}</div>`);

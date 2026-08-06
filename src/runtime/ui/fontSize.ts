@@ -142,3 +142,35 @@ export const TEXT_INSET_PT = 10;
  *  forma de ver la caja del prop y la del campo en la misma fila—: prop **159.33 → 181.00**
  *  (22.00 pt) y campo **160.33 → 178.0** ⇒ 1 pt arriba, 18 de alto (= 22 − 4) y 3 abajo. */
 export const FIELD_INSET_PT = 4;
+
+/** ALTO DE FILA de un prop de texto que **no declara `height`** (corte #27).
+ *
+ *  El oráculo lo saca del dimensionado **intrínseco de UIKit**:
+ *  `retH = [uiTextField sizeThatFits:] .height + 4` (`EditTextProperty.mm:2062-2081`), que no se
+ *  deriva del XML ni del CSS. Se reproduce con una recta calibrada contra el device.
+ *
+ *  **La calibración vive en el repo**: `xone_app/CalibLayout` es un banco hecho a propósito, con
+ *  seis filas de la MISMA clase real del corpus (`classT` de MyAllXOne, con su CSS copiado) que
+ *  varían **sólo** el tamaño del campo. Medido en el device (iPhone 16 Pro Max, @3×), con la banda
+ *  de `bgcolor` del wrapper dando la caja del prop:
+ *
+ *      propFontoSize │  12     14     16     20     24     34
+ *      alto (pt)     │  22.00  24.67  27.00  31.67  36.33  48.33
+ *
+ *  Ajuste: `1.1890 × tamaño + 7.89`, con residuos de ±0.15 pt en los seis puntos. La pendiente es
+ *  el ratio de *line height* de San Francisco (1.193), o sea que `sizeThatFits` devuelve el alto de
+ *  línea más ~3.9, y el oráculo le suma sus 4.
+ *
+ *  **Validación externa:** el punto de 12 pt coincide con los **22.00** medidos por separado en
+ *  `EspecialColores` de MyAllXOne, otra app y otra pantalla.
+ *
+ *  ★ Lección del banco: **tiene que copiar los atributos del corpus y variar sólo la incógnita**.
+ *  Con las filas «a pelo» (sin la clase real) los tres primeros tamaños salían planos a 28 pt y la
+ *  relación quedaba escondida; en cuanto las filas usan `class="classT"` la recta aparece sola. */
+const ROW_HEIGHT_SLOPE = 1.1890;
+const ROW_HEIGHT_OFFSET = 7.89;
+
+/** Alto de fila en PUNTOS del oráculo para un prop de texto sin `height` declarado. */
+export function textRowHeightPt(propFontSizePt: number): number {
+  return ROW_HEIGHT_SLOPE * propFontSizePt + ROW_HEIGHT_OFFSET;
+}
