@@ -46,7 +46,16 @@ body{font-family:sans-serif;font-size:17px;margin:0;padding:8px;background:#eee}
    (EditPropertyControl.mm:780-781, sin pasar por calculateSizeFont) con el zoom del render del
    corte #23. Va en el CSS y no inline para que sólo afecte a props: los contenedores comparten
    styleDeclsFromAttributes y no tienen cuerpo propio. */
-.xone-prop{display:flex;flex-direction:column;margin:4px 0;font-size:11.5px}
+/* position:relative NO mueve nada (sin desplazamientos) pero mete a TODOS los props en la
+   misma fase de pintado (CSS 2.1 E.2 paso 8) ⇒ dentro de ella CSS pinta en orden de ARBOL, que
+   es el orden de declaracion del XML: lo mismo que hace UIKit con su array de subvistas
+   (EditGroupController.mm:2082 construye en orden, EditFrameControl.mm:3689 addSubview:).
+   Sin esto, el fondo de un boton declarado despues se pintaba en el paso 4 y la imagen de una
+   foto anterior, que es elemento REEMPLAZADO (paso 7), lo tapaba — y la regla de abajo, que
+   pone position:relative a los props de imagen para colgar .xone-photo-actions, promocionaba
+   la foto al paso 8, por encima de TODO lo posterior. Corte #32, AliviaApp/EntradaApp perdia
+   asi tres controles. */
+.xone-prop{position:relative;display:flex;flex-direction:column;margin:4px 0;font-size:11.5px}
 .xone-prop>label{display:block;font-size:11.5px;color:#555}
 /* sin column-gap: el oráculo pone el campo exactamente en lmargin + lbw (corte #22) */
 .xone-prop--hlabel{flex-direction:row}
