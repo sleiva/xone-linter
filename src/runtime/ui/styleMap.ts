@@ -236,6 +236,25 @@ export function textBorderDecls(attrs: Record<string, string>, scale = 1): Recor
   return out;
 }
 
+/** Grosor del borde de texto **cuando cubre los cuatro lados** (`isFullTextBorder`, el AND de los
+ *  cuatro en `EditPropertyControl.mm:1310`, que `text-border="true"` pone de golpe en `:1276-1280`),
+ *  o `undefined` si el borde es parcial o no hay.
+ *
+ *  El valor sale de `text-border-width` con **`atof` y SIN escalar** (`:1331`) y defaultea a **1.0**
+ *  (`:1260`) — en todo el corpus vale `1p`. Sólo se usa para el inset extra del campo de texto
+ *  (corte #25): con borde completo el campo se desplaza `+bw` y pierde `2bw+1` de ancho
+ *  (`EditTextProperty.mm:1408-1414`), o sea que su borde derecho entra `bw+1`. */
+export function fullTextBorderWidth(attrs: Record<string, string>): number | undefined {
+  const declared = attrs['text-border'];
+  const full = isTrueAttr(declared)
+    || (declared === undefined && TEXT_BORDER_SIDES.every(([a]) => isTrueAttr(attrs[a])));
+  if (!full) return undefined;
+  const raw = attrs['text-border-width'];
+  if (raw === undefined) return 1;
+  const m = /^\s*[+-]?\d+(?:\.\d+)?/.exec(raw);   // atof: prefijo numérico, ignora el sufijo `p`
+  return m ? parseFloat(m[0]) : 1;
+}
+
 const HEIGHT_PCT_RE = /^-?\d+(?:\.\d+)?%$/;
 
 /** Resuelve una longitud VERTICAL (`height`/`tmargin`/`bmargin`) a un número de px definido,

@@ -2,7 +2,7 @@ import type { ViewState } from './ViewState.js';
 import { groupKey, isDrawerGroup, isFixedGroup, isRenderablePage, type UIGroup } from './Group.js';
 import type { UIFrame } from './Frame.js';
 import type { UIControl } from './Control.js';
-import { styleDeclsFromAttributes, declsToInline, xoneImgToCss, xoneLengthToCss, xoneColorToCss, resolveHeightPx, textBorderDecls, parseAlign, normalizeScale, type ResolveImg, type Scale } from './styleMap.js';
+import { styleDeclsFromAttributes, declsToInline, xoneImgToCss, xoneLengthToCss, xoneColorToCss, resolveHeightPx, textBorderDecls, fullTextBorderWidth, parseAlign, normalizeScale, type ResolveImg, type Scale } from './styleMap.js';
 import { APP_FONT_FACTOR_DEFAULT, PROP_FONT_SIZE_DEFAULT, TEXT_INSET_PT, labelFontSize, labelBoxWidth, toCssPx } from './fontSize.js';
 
 // max-width:420px es el mismo RENDER_WIDTH usado por XoneRuntime.renderHtml para calcular
@@ -673,7 +673,16 @@ function renderControl(
 
   // G19: borde del ELEMENTO de texto desde text-border* (subrayado / caja parcial).
   // el grosor del borde se queda en el eje horizontal (sin cita que lo reparta, ver el spec)
-  const ebDecls = declsToInline(textBorderDecls(c.attributes, scale.w));
+  // Con borde de texto COMPLETO el campo se desplaza `+bw` y pierde `2bw+1` de ancho
+  // (`EditTextProperty.mm:1408-1414`) ⇒ en la fila flex son `margin-left:bw` y
+  // `margin-right:bw+1`: si el campo es el último elemento su borde derecho entra `bw+1`, y si
+  // detrás va el icono del combo, el icono no se mueve —lo fija el padding de la fila— y el que
+  // encoge es el campo, que es exactamente lo que hace el oráculo (corte #25).
+  const tbw = fullTextBorderWidth(c.attributes);
+  const tbInset = tbw !== undefined
+    ? `margin-left:${toCssPx(tbw)}px;margin-right:${toCssPx(tbw + 1)}px`
+    : '';
+  const ebDecls = [declsToInline(textBorderDecls(c.attributes, scale.w)), tbInset].filter(Boolean).join(';');
   const eb = ebDecls ? ` style="${ebDecls}"` : '';
 
   const lines = parseInt(c.attributes.lines ?? '', 10);
@@ -752,7 +761,8 @@ function renderControl(
         ? `<img src="${esc(icon)}" alt="" class="xone-select__spinner"${sty}>`
         : `<span class="xone-select__spinner">${inline ? '▾' : '🔍'}</span>`;
     }
-    return wrapText(`${label}<div class="xone-select"${dis}><span class="xone-select__value">${esc(shown)}</span></div>${spinner}`);
+    const selSty = tbInset ? ` style="${tbInset}"` : '';
+    return wrapText(`${label}<div class="xone-select"${dis}${selSty}><span class="xone-select__value">${esc(shown)}</span></div>${spinner}`);
   }
   switch (base) {
     case 'B': {
