@@ -85,7 +85,9 @@ body{font-family:sans-serif;font-size:17px;margin:0;padding:8px;background:#eee}
    object-fit:fill porque la caja se DERIVA del aspecto de la imagen (fill == contain, sin
    distorsion) y, cuando hay height declarado, el oraculo estira. */
 .xone-btn-icon{max-width:100%;object-fit:fill}
-.xone-prop>input:not([type=checkbox]),.xone-prop>textarea{border:1px solid #bbb;text-align:inherit}
+/* borde negro: es el default literal del oraculo (EditTextProperty.mm:750, corte #39), del que
+   luego tiran forecolor / text-forecolor / border-color / text-border-color */
+.xone-prop>input:not([type=checkbox]),.xone-prop>textarea{border:1px solid #000;text-align:inherit}
 .xone-prop>input[type=checkbox]{align-self:flex-start}
 /* switch de check-type="switch": el UISwitch nativo mide 51x31 pt y se centra vertical
    pegado a la izquierda, escalando si la fila es mas baja (MICheckBox.mm:198-213) */
@@ -721,8 +723,16 @@ function renderControl(
   // lo que hacía que las 11 etiquetas de `EspecialFontSize` salieran todas iguales.
   const lblSize = labelFontSize(c.attributes, activeFontFactor);
   const lblFont = lblSize !== undefined ? `font-size:${toCssPx(lblSize)}px` : '';
+  // La etiqueta EN LÍNEA es de UNA sola línea y se RECORTA (corte #38): `nLines = 1` por defecto y
+  // `numberOfLines` sólo cambia con `lines` (→ n) o con `label-wrap="true"` (→ 0, ilimitado)
+  // — `EditPropertyControl.mm:575-588`. Un `UILabel` de una línea dibuja lo que cabe y corta **sin
+  // puntos suspensivos**: el device de `EspecialColores` muestra «Fondo deshabilitad» donde el título
+  // es «Fondo deshabilitado». Dejarla envolver no sólo la partía en dos: el alto del prop es el
+  // máximo de etiqueta y campo, así que empujaba todas las filas de abajo.
+  const lblWraps = isTrueAttrLocal(c.attributes['label-wrap']) || (parseInt(c.attributes.lines ?? '', 10) > 1);
+  const lblClip = inlineLabel && !lblWraps ? 'white-space:nowrap;overflow:hidden' : '';
   const lblStyle = (extra?: string) => {
-    const decls = [extra, lblFont].filter(Boolean).join(';');
+    const decls = [extra, lblFont, lblClip].filter(Boolean).join(';');
     return decls ? ` style="${decls}"` : '';
   };
   // Ancho de la caja de la etiqueta en línea (corte #22): `labelwidth × ancho de "M" en NEGRITA

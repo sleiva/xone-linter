@@ -222,6 +222,29 @@ function isTrueAttr(v: string | undefined): boolean {
   return (v ?? '').trim().toLowerCase() === 'true';
 }
 
+/** Color del borde de texto — la CASCADA del oráculo (corte #39), no un gris fijo.
+ *
+ *  `EditTextProperty.mm:750-806` (y su gemelo `:1011-1018`), ganando el último que aparezca:
+ *
+ *    UIColor *textBorderColor = [UIColor blackColor];                 // :750  default NEGRO
+ *    if (forecolor)           textBorderColor = forecolor;            // :785
+ *    if (text-forecolor)      textBorderColor = text-forecolor;       // :790
+ *    if (border-color)        textBorderColor = border-color;         // :800
+ *    if (text-border-color)   textBorderColor = text-border-color;    // :803
+ *
+ *  O sea que **el borde sigue al color del texto** salvo que se declare uno propio. El render usaba
+ *  `#bbb`, que era invención. Device (`MyAllXOne/EspecialColores`): las reglas de los campos miden
+ *  **#5C5C5C** (el `text-forecolor:#333333` de su CSS, en una línea de 1 px sobre blanco) y la fila
+ *  de texto cian las saca **#33B8FF**. */
+export function textBorderColor(attrs: Record<string, string>): string {
+  let color = '#000000';
+  for (const attr of ['forecolor', 'text-forecolor', 'border-color', 'text-border-color'] as const) {
+    const c = xoneColorToCss(attrs[attr]);
+    if (c) color = c;
+  }
+  return color;
+}
+
 /** Tabla de verdad de los cuatro lados del borde de texto — la ÚNICA (corte #29).
  *
  *  Oráculo `EditPropertyControl.mm:1274-1310` (y su gemelo `EditTextProperty.mm:618-650`):
@@ -258,9 +281,14 @@ export function textBorderSides(attrs: Record<string, string>): Record<'top' | '
  *  width = `text-border-width` escalado (o `1px`). El común `prop{text-border-bottom:true}`
  *  → solo `border-bottom` (subrayado), sin caja. */
 export function textBorderDecls(attrs: Record<string, string>, scale = 1): Record<string, string> {
+  const color = textBorderColor(attrs);
   const hasAny = attrs['text-border'] !== undefined || TEXT_BORDER_SIDES.some(([a]) => attrs[a] !== undefined);
-  if (!hasAny) return {};
-  const color = xoneColorToCss(attrs['text-border-color']) ?? '#bbb';
+  if (!hasAny) {
+    // Sin ningún `text-border*` el oráculo pinta el borde COMPLETO por defecto (corte #29) y su
+    // color sale de la misma cascada ⇒ hay que sobreescribir el del BASE_CSS. Si la cascada da el
+    // negro literal del default no hace falta emitir nada: el BASE_CSS ya lo pinta negro.
+    return color === '#000000' ? {} : { 'border-color': color };
+  }
   const width = xoneLengthToCss(attrs['text-border-width'], scale) ?? '1px';
   const out: Record<string, string> = { 'border-style': 'none' };
   const on = textBorderSides(attrs);
