@@ -3,7 +3,7 @@ import { groupKey, isDrawerGroup, isFixedGroup, isRenderablePage, type UIGroup }
 import type { UIFrame } from './Frame.js';
 import type { UIControl } from './Control.js';
 import { styleDeclsFromAttributes, declsToInline, xoneImgToCss, xoneLengthToCss, xoneColorToCss, resolveHeightPx, textBorderDecls, parseAlign, normalizeScale, type ResolveImg, type Scale } from './styleMap.js';
-import { APP_FONT_FACTOR_DEFAULT, labelFontSize } from './fontSize.js';
+import { APP_FONT_FACTOR_DEFAULT, PROP_FONT_SIZE_DEFAULT, labelFontSize, labelBoxWidth } from './fontSize.js';
 
 // max-width:420px es el mismo RENDER_WIDTH usado por XoneRuntime.renderHtml para calcular
 // el scale (RENDER_WIDTH / resolution-width) — mantener ambos valores sincronizados.
@@ -36,7 +36,8 @@ body{font-family:sans-serif;font-size:17px;margin:0;padding:8px;background:#eee}
    props: los contenedores comparten styleDeclsFromAttributes y no tienen cuerpo propio. */
 .xone-prop{display:flex;flex-direction:column;margin:4px 0;font-size:12px}
 .xone-prop>label{display:block;font-size:12px;color:#555}
-.xone-prop--hlabel{flex-direction:row;column-gap:8px}
+/* sin column-gap: el oráculo pone el campo exactamente en lmargin + lbw (corte #22) */
+.xone-prop--hlabel{flex-direction:row}
 .xone-prop--hlabel>label{flex:0 0 auto;align-self:center}
 .xone-prop>button,.xone-prop>input:not([type=checkbox]),.xone-prop>textarea{flex:1 1 auto;width:100%;box-sizing:border-box;background:transparent;color:inherit;font:inherit;min-height:0}
 .xone-prop>button{border:none;text-align:inherit}
@@ -640,8 +641,16 @@ function renderControl(
     const decls = [extra, lblFont].filter(Boolean).join(';');
     return decls ? ` style="${decls}"` : '';
   };
+  // Ancho de la caja de la etiqueta en línea (corte #22): `labelwidth × ancho de "M" en NEGRITA
+  // al tamaño de la ETIQUETA` (`EditTextProperty.mm:1359`), no el `ch` del CSS —que es el avance
+  // del `0` de la fuente de respaldo y dejaba la etiqueta un 40% estrecha, empujando de menos al
+  // campo. La recta del ancho por carácter está calibrada con 9 medidas del device; ver
+  // `fontSize.ts`. Sin holgura: el oráculo pone el campo justo en `lmargin + lbw`.
+  const lblBox = inlineLabel
+    ? labelBoxWidth(Number.isFinite(lwRaw) ? lwRaw : undefined, lblSize ?? PROP_FONT_SIZE_DEFAULT)
+    : undefined;
   const label = hasLabel
-    ? `<label${lblStyle(inlineLabel ? `width:${labelWidth}ch` : undefined)}>${esc(title)}</label>`
+    ? `<label${lblStyle(lblBox !== undefined ? `width:${lblBox}px` : undefined)}>${esc(title)}</label>`
     : '';
   // tooltip="" (presente pero vacío) cae a caption — no se queda en cadena vacía.
   const placeholderText = c.attributes.tooltip || c.attributes.caption;

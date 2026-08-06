@@ -68,3 +68,34 @@ export function fieldFontSize(attrs: Record<string, string>, factor: number): nu
 export function labelFontSize(attrs: Record<string, string>, factor: number): number | undefined {
   return cascade(attrs, ['labelfont-size', 'labelfontsize', 'fontsize'], factor);
 }
+
+/** Default de `lbw` cuando el prop no declara `labelwidth` — `EditTextProperty.mm:1354`
+ *  (la doc dice 10; el código dice 8, y manda el código). */
+export const LABEL_WIDTH_DEFAULT = 8;
+
+/** Ancho de un carácter de etiqueta, en px, al tamaño de letra de la ETIQUETA.
+ *
+ *  El oráculo multiplica `labelwidth` por el ancho de **"M" en NEGRITA** a ese tamaño
+ *  (`calculateAvgFontSize`, `XoneApp.mm:7673-7678`, usado en `EditTextProperty.mm:1263`/`:1359`).
+ *  El `ch` del CSS no vale: es el avance del `0` de la fuente de respaldo (~0.64 em) y deja la
+ *  etiqueta un 40% estrecha.
+ *
+ *  La recta sale de **9 medidas del device** (`EspecialFontSize` grupo 3, con `labelwidth="7"` y
+ *  ocho tamaños de etiqueta de 10 a 20, más `EspecialPerifericos` a 14) y el término constante lo
+ *  **discrimina** un `labelwidth` distinto: `EspecialColores` declara 11 al mismo tamaño y mide
+ *  146.0 pt, que un modelo proporcional puro (136.5) o con constante global (143.0) no explican.
+ */
+const LABEL_CHAR_SLOPE = 0.8143;
+const LABEL_CHAR_OFFSET = 1.071;
+
+export function labelCharWidth(labelFontSizePx: number): number {
+  return LABEL_CHAR_SLOPE * labelFontSizePx + LABEL_CHAR_OFFSET;
+}
+
+/** Ancho de la CAJA de la etiqueta en línea: `labelwidth × ancho de carácter`. Es también la x
+ *  del campo respecto al borde del prop, porque el `−4` del frame de la etiqueta
+ *  (`EditTextProperty.mm:1380`) se cancela con el `+4` del campo (`:1414`) ⇒ **sin holgura**. */
+export function labelBoxWidth(labelWidth: number | undefined, labelFontSizePx: number): number {
+  const lw = labelWidth ?? LABEL_WIDTH_DEFAULT;
+  return +(lw * labelCharWidth(labelFontSizePx)).toFixed(1);
+}
