@@ -3,7 +3,7 @@ import { groupKey, isDrawerGroup, isFixedGroup, isRenderablePage, type UIGroup }
 import type { UIFrame } from './Frame.js';
 import type { UIControl } from './Control.js';
 import { styleDeclsFromAttributes, declsToInline, xoneImgToCss, xoneLengthToCss, xoneColorToCss, resolveHeightPx, textBorderDecls, fullTextBorderWidth, parseAlign, normalizeScale, type ResolveImg, type Scale } from './styleMap.js';
-import { APP_FONT_FACTOR_DEFAULT, PROP_FONT_SIZE_DEFAULT, TEXT_INSET_PT, FIELD_INSET_PT, labelFontSize, labelBoxWidth, fieldFontSize, textRowHeightPt, toCssPx } from './fontSize.js';
+import { APP_FONT_FACTOR_DEFAULT, PROP_FONT_SIZE_DEFAULT, TEXT_INSET_PT, FIELD_INSET_PT, LABEL_WRAP_SLACK_PT, labelFontSize, labelBoxWidth, fieldFontSize, textRowHeightPt, toCssPx } from './fontSize.js';
 
 // max-width:420px es el mismo RENDER_WIDTH usado por XoneRuntime.renderHtml para calcular
 // el scale (RENDER_WIDTH / resolution-width) — mantener ambos valores sincronizados.
@@ -885,6 +885,31 @@ function renderControl(
     }
     case 'L':
     case 'TL': {
+      // Alto de una etiqueta ENVUELTA (corte #35): `getPropHeight` de la rama `T_LABEL`
+      // (`EditPropertyControl.mm:2166-2197`) mide el texto con `boundingRectWithSize` a lo ancho
+      // del prop y devuelve **ese alto + 5 PUNTOS** (literal, sin escalar, igual que el `+4` del
+      // campo de texto del corte #27). Y como `UILabel` centra su texto vertical en sus bounds,
+      // esos 5 puntos quedan repartidos 2.5 arriba y 2.5 abajo ⇒ padding vertical sobre la caja
+      // intrínseca del navegador.
+      //
+      // ★ La rama entra con `label-wrap="true"` **o** `height` `auto`/`-1`, y va ANTES de la del
+      // `height` declarado (`:2201-2211`) ⇒ con `label-wrap` el alto declarado se IGNORA. Son 9
+      // props del corpus, que hasta ahora salían con su alto fijo.
+      const wrapped = isTrueAttrLocal(c.attributes['label-wrap'])
+        || c.attributes.height === 'auto' || c.attributes.height === '-1';
+      if (wrapped) {
+        const half = toCssPx(LABEL_WRAP_SLACK_PT / 2);
+        const ov = { ...mergedOv, 'padding-top': `${half}px`, 'padding-bottom': `${half}px` };
+        delete (ov as Record<string, string>).height;
+        // el alto declarado no llega ni al CSS: la rama de `label-wrap` lo ignora en el oráculo
+        const attrsNoH: Record<string, string> = { ...c.attributes };
+        delete attrsNoH.height;
+        const styleWrap = inline(attrsNoH, scale, false, ov, resolveImg);
+        const fcW = xoneColorToCss(c.attributes.forecolor);
+        const styW = fcW ? ` style="color:${fcW}"` : '';
+        const lblW = hasLabel ? `<label${lblStyle(fcW ? `color:${fcW}` : undefined)}>${esc(title)}</label>` : '';
+        return `<div ${cls}${styleWrap} data-type="${esc(c.type)}">${lblW}<span${styW}>${esc(val)}</span></div>`;
+      }
       // El color del texto de un label es su `forecolor` (no `text-forecolor`, que es el color
       // del texto ESCRITO de un input). Override sobre el color heredado del wrapper.
       const fc = xoneColorToCss(c.attributes.forecolor);
@@ -1169,6 +1194,11 @@ function fontFaceCss(faces: Record<string, string> | undefined): string {
     out.push(`@font-face{font-family:'${fam}';src:url('${url}')format('${fmt}')}`);
   }
   return out.length ? out.join('\n') + '\n' : '';
+}
+
+/** `true` estricto (minúsculas), como los `CompareStrings("true", …)` del oráculo. */
+function isTrueAttrLocal(v: string | undefined): boolean {
+  return (v ?? '').trim().toLowerCase() === 'true';
 }
 
 function classAttr(base: string, attrs: Record<string, string>): string {

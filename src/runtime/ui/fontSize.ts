@@ -174,3 +174,11 @@ const ROW_HEIGHT_OFFSET = 7.89;
 export function textRowHeightPt(propFontSizePt: number): number {
   return ROW_HEIGHT_SLOPE * propFontSizePt + ROW_HEIGHT_OFFSET;
 }
+
+/** Holgura vertical de una etiqueta ENVUELTA, en PUNTOS (corte #35).
+ *
+ *  `getPropHeight` de la rama `T_LABEL` (`EditPropertyControl.mm:2166-2197`) mide el texto con
+ *  `boundingRectWithSize` a lo ancho del prop y devuelve **ese alto + 5**, literal y sin escalar
+ *  —igual que el `+4` que el corte #27 encontró en el campo de texto—. Como `UILabel` centra su
+ *  texto vertical en sus bounds, los 5 puntos quedan 2.5 arriba y 2.5 abajo. */
+export const LABEL_WRAP_SLACK_PT = 5;
