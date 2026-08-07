@@ -1,9 +1,11 @@
 #!/usr/bin/env node
-import { resolve } from 'node:path';
+import { resolve, dirname } from 'node:path';
+import { writeFileSync, mkdirSync, readFileSync } from 'node:fs';
 import pc from 'picocolors';
 import { XoneProject } from './project/XoneProject.js';
 import { Validator } from './validator/Validator.js';
 import { XoneRuntime } from './runtime/XoneRuntime.js';
+import { XoneSimulator } from './XoneSimulator.js';
 import { runSmoke, type SmokeIssue } from './agent/smoke.js';
 
 async function main(): Promise<void> {
@@ -42,6 +44,32 @@ async function main(): Promise<void> {
     return;
   }
 
+  if (command === 'login') {
+    const pathArg = args.slice(1).find(a => !a.startsWith('-'));
+    const projectPath = pathArg ?? process.cwd();
+    const user = getArgValue(args, '--user');
+    const pass = getArgValue(args, '--pass');
+    const session = getArgValue(args, '--session');
+    if (!user || !pass || !session) {
+      console.error(pc.red('Faltan --user, --pass y --session'));
+      printHelp();
+      process.exit(1);
+    }
+    const timeoutRaw = getArgValue(args, '--timeout');
+    const timeout = timeoutRaw !== undefined && Number.isFinite(Number(timeoutRaw))
+      ? Number(timeoutRaw) * 1000
+      : 30_000;
+    await loginCmd(projectPath, {
+      user, pass, sessionPath: session, timeoutMs: timeout,
+      boot: getArgValue(args, '--boot') ?? 'EntradaApp',
+      coll: getArgValue(args, '--coll') ?? 'Login',
+      userProp: getArgValue(args, '--user-prop') ?? 'MAP_EMAIL',
+      passProp: getArgValue(args, '--pass-prop') ?? 'MAP_PASS',
+      loginProp: getArgValue(args, '--login-prop') ?? 'MAP_LOGIN_BTN',
+    });
+    return;
+  }
+
   if (command === 'render') {
     const pathArg = args.slice(1).find(a => !a.startsWith('-'));
     const projectPath = pathArg ?? process.cwd();
@@ -60,7 +88,7 @@ async function main(): Promise<void> {
       }
     }
     const activeColor = getArgValue(args, '--active-color');
-    await renderCmd(projectPath, collName, flow, dbPath, dbPrefix, group, activeColor);
+    await renderCmd(projectPath, collName, flow, dbPath, dbPrefix, group, activeColor, getArgValue(args, '--session'));
     return;
   }
 
@@ -83,7 +111,7 @@ async function main(): Promise<void> {
         console.error(pc.yellow(`Aviso: --max-taps "${maxTapsRaw}" no es un entero ≥1; se ignora (usando el valor por defecto).`));
       }
     }
-    await smoke(projectPath, { interact, coll, maxTaps }, json);
+    await smoke(projectPath, { interact, coll, maxTaps, sessionPath: getArgValue(args, '--session') }, json);
     return;
   }
 
@@ -138,7 +166,7 @@ async function validate(projectPath: string, json: boolean): Promise<void> {
 
 async function smoke(
   projectPath: string,
-  flags: { interact: boolean; coll?: string; maxTaps?: number },
+  flags: { interact: boolean; coll?: string; maxTaps?: number; sessionPath?: string },
   json: boolean,
 ): Promise<void> {
   const resolved = resolve(projectPath);
@@ -160,6 +188,7 @@ async function smoke(
     level: flags.interact ? 'interact' : 'lifecycle',
     colls: flags.coll ? [flags.coll] : undefined,
     maxTapsPerColl: flags.maxTaps,
+    session: leerSesion(flags.sessionPath),
   });
 
   if (json) {
@@ -285,7 +314,23 @@ async function runEvent(
   }
 }
 
-async function renderCmd(projectPath: string, collName?: string, flow = true, dbPath?: string, dbPrefix?: string, group?: number, activeColor?: string): Promise<void> {
+/** Lee un fichero de sesión escrito por `login`. Fichero ilegible ⇒ aviso y sin sesión: preferimos
+ *  renderizar sin datos a abortar, que es lo que hacía antes de existir el flag. */
+function leerSesion(sessionPath: string | undefined): Record<string, unknown> | undefined {
+  if (!sessionPath) return undefined;
+  try {
+    const parsed: unknown = JSON.parse(readFileSync(resolve(sessionPath), 'utf-8'));
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      return parsed as Record<string, unknown>;
+    }
+    console.error(pc.yellow(`Aviso: --session "${sessionPath}" no es un objeto; se ignora.`));
+  } catch (e) {
+    console.error(pc.yellow(`Aviso: no se pudo leer --session "${sessionPath}": ${String(e)}`));
+  }
+  return undefined;
+}
+
+async function renderCmd(projectPath: string, collName?: string, flow = true, dbPath?: string, dbPrefix?: string, group?: number, activeColor?: string, sessionPath?: string): Promise<void> {
   const resolved = resolve(projectPath);
 
   let project: Awaited<ReturnType<typeof XoneProject.load>>;
@@ -298,6 +343,8 @@ async function renderCmd(projectPath: string, collName?: string, flow = true, db
   }
 
   const runtime = new XoneRuntime(project.model, undefined, { network: 'mock', dbPath, prefix: dbPrefix });
+  const sesion = leerSesion(sessionPath);
+  if (sesion) runtime.appData.loadSession(sesion);
   try {
     const entry = project.model.app.entryPoints[0];
     const target = collName ?? entry;
@@ -318,14 +365,80 @@ Comandos:
             [--db-path <path.db>] [--db-prefix <prefix>]
             [--json|-j]
   render <path> [--coll X] [--no-flow]   Renderiza una coll a HTML (con ciclo de vida; --no-flow = en frío)
+            [--session <fichero>]                                      (--session = sesión escrita por login)
             [--group N] [--db-path <path.db>] [--db-prefix <prefix>]   (--group N = página swipe por id;
                                                                        BD real: usar una COPIA para no mutar la del repo)
             [--active-color <hex>]                                     (--active-color = overridea MAP_COLORACTIVO)
   smoke <path> [--json|-j] [--interact]  Smoke-run de la app completa (lifecycle de todas las colls;
             [--coll X] [--max-taps N]      --interact = además tapea props con onclick/method;
                                             --coll = solo esa coll; exit 1 si hay failures)
+  login <path> --user <email> --pass <pwd> --session <fichero>
+            [--boot EntradaApp] [--coll Login]                Inicia sesión ejecutando el login()
+            [--user-prop MAP_EMAIL] [--pass-prop MAP_PASS]    de la propia app y vuelca la sesión.
+            [--login-prop MAP_LOGIN_BTN] [--timeout 30]       exit 1 si no completa.
   help                                  Muestra esta ayuda
 `);
+}
+
+interface LoginOptions {
+  user: string; pass: string; sessionPath: string; timeoutMs: number;
+  boot: string; coll: string; userProp: string; passProp: string; loginProp: string;
+}
+
+/**
+ * Inicia sesión ejecutando el `login()` de la PROPIA app y vuelca la sesión a un fichero.
+ *
+ * App-agnóstico: los nombres de coll y props son flags con defaults, así que ningún endpoint ni
+ * nombre de campo de una app concreta entra en el simulador.
+ *
+ * Dos cosas que la medición del login de AliviaApp dejó claras y que este comando respeta:
+ *  - hay que ARRANCAR la app antes (su `create` de entrada es quien fija la config online);
+ *    entrar directo al formulario deja la config a `undefined` y la app lo convierte en un toast
+ *    genérico, porque se traga la excepción;
+ *  - hay que ESPERAR el trabajo asíncrono: `$http` es fire-and-forget.
+ *
+ * Éxito = la app NAVEGÓ fuera de la coll del formulario, que es la señal que da la propia app.
+ * No se inspecciona el cuerpo de la respuesta: eso sería cablear el contrato de una app.
+ */
+async function loginCmd(projectPath: string, o: LoginOptions): Promise<void> {
+  const sim = await XoneSimulator.load(resolve(projectPath), { network: 'real' });
+  try {
+    await sim.run(o.boot, 'create');
+    await sim.enter(o.coll);
+    await sim.set(o.coll, o.userProp, o.user);
+    await sim.set(o.coll, o.passProp, o.pass);
+    await sim.tap(o.coll, o.loginProp);
+
+    const agotado = Symbol('timeout');
+    const espera = await Promise.race([
+      sim.idle().then(() => 'ok' as const),
+      new Promise<typeof agotado>(r => setTimeout(() => r(agotado), o.timeoutMs)),
+    ]);
+    if (espera === agotado) {
+      console.error(pc.red(`El login no terminó en ${o.timeoutMs / 1000}s.`));
+      process.exit(1);
+    }
+
+    const vista = sim.view();
+    const salio = vista.view?.collName !== o.coll;
+    if (!salio) {
+      console.error(pc.red(`El login no completó: se sigue en "${o.coll}".`));
+      for (const e of vista.log) console.error(`  [${e.type}] ${String(e.description).slice(0, 200)}`);
+      process.exit(1);
+    }
+
+    const session = sim.dumpSession();
+    const destino = resolve(o.sessionPath);
+    mkdirSync(dirname(destino), { recursive: true });
+    writeFileSync(destino, JSON.stringify(session, null, 2), 'utf-8');
+    console.log(pc.green(`Sesión iniciada; la app navegó a "${vista.view?.collName}".`));
+    console.log(`Sesión escrita en ${destino}`);
+    // El volcado lleva el TOKEN y el hash de la contraseña tal y como los dejó la app: es una
+    // credencial viva, no un fixture.
+    console.log(pc.yellow('Aviso: el fichero contiene credenciales — no lo versiones.'));
+  } finally {
+    sim.close();
+  }
 }
 
 main().catch((e) => {

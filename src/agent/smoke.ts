@@ -14,6 +14,8 @@ export interface SmokeOptions {
   maxTapsPerColl?: number;
   /** Líneas de stack conservadas por error JS (default 5). */
   maxStackLines?: number;
+  /** Sesión volcada por `login`: se carga antes de recorrer las colls. */
+  session?: Record<string, unknown>;
 }
 
 export interface SmokeIssue {
@@ -127,6 +129,7 @@ export async function runSmoke(model: XoneProjectModel, opts: SmokeOptions = {})
   const entry = model.app.entryPoints[0];
   const names = opts.colls ?? (entry && allNames.includes(entry) ? [entry, ...allNames.filter(n => n !== entry)] : allNames);
   const runtime = new XoneRuntime(model, undefined, { network: 'mock' });
+  if (opts?.session) runtime.appData.loadSession(opts.session);
   const collReports: SmokeCollReport[] = [];
   try {
     for (const name of names) {

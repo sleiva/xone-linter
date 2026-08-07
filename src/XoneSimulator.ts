@@ -7,7 +7,15 @@ import { serializeValidation, serializeIssues } from './agent/serialize.js';
 import { buildSimResult, type SimResult } from './agent/result.js';
 import { runSmoke, type SmokeOptions, type SmokeReport } from './agent/smoke.js';
 
-export interface SimulatorOptions { dbPath?: string; network?: 'real' | 'mock'; filesPath?: string; seed?: Record<string, Record<string, unknown>[]>; }
+export interface SimulatorOptions {
+  dbPath?: string;
+  network?: 'real' | 'mock';
+  filesPath?: string;
+  seed?: Record<string, Record<string, unknown>[]>;
+  /** Sesión volcada por un `login` previo: se carga ANTES de entrar, para que el arranque de la
+   *  app ya vea el token en el global `user`. */
+  session?: Record<string, unknown>;
+}
 
 /** Facade nativo en proceso para que un agente abra y opere una app XOne. */
 export class XoneSimulator {
@@ -19,6 +27,7 @@ export class XoneSimulator {
   static async load(appPath: string, opts?: SimulatorOptions): Promise<XoneSimulator> {
     const project = await XoneProject.load(appPath);
     const runtime = new XoneRuntime(project.model, undefined, opts);
+    if (opts?.session) runtime.appData.loadSession(opts.session);
     const entry = project.model.app.entryPoints[0];
     if (entry) runtime.enter(entry);
     runtime.log.clear(); // estado inicial limpio: el log reflejará solo acciones posteriores
@@ -83,6 +92,12 @@ export class XoneSimulator {
   async smoke(opts?: SmokeOptions): Promise<SmokeReport> {
     return runSmoke(this.model, opts);
   }
+
+  /** Espera a que no quede trabajo HTTP en vuelo (`$http` es fire-and-forget). */
+  async idle(): Promise<void> { await this.runtime.http.idle(); }
+
+  /** Sesión que la app dejó en el global `user` (token incluido). */
+  dumpSession(): Record<string, unknown> { return this.runtime.appData.dumpSession(); }
 
   getCollection(name: string): DataCollection | undefined { return this.runtime.getCollection(name); }
   get log(): RuntimeLog { return this.runtime.log; }

@@ -29,6 +29,8 @@ export class HttpClient {
   private readonly network: 'real' | 'mock';
   private readonly filesRootProvider: () => string;
   private downloadCounter = 0;
+  /** Peticiones reales en vuelo — ver `idle()`. */
+  private enVuelo = new Set<Promise<void>>();
 
   constructor(private readonly log: RuntimeLog, opts: HttpClientOptions) {
     this.mockStore = new MockStore(log, opts.rootProvider);
@@ -50,6 +52,20 @@ export class HttpClient {
   }
 
   clearMocks(): void { this.mockStore.clear(); }
+
+  /**
+   * Resuelve cuando no queda ninguna petición REAL en vuelo, y nunca antes de que hayan corrido
+   * sus callbacks. `$http` es fire-and-forget —el script sigue y la respuesta llega después—, así
+   * que sin esto un comando del CLI acabaría antes de tener el resultado.
+   *
+   * Vuelve a mirar el conjunto tras cada tanda, porque un callback puede lanzar una petición nueva
+   * (el login encadena: LoginHEX → prepareConnections → …).
+   */
+  async idle(): Promise<void> {
+    while (this.enVuelo.size > 0) {
+      await Promise.all([...this.enVuelo]);
+    }
+  }
 
   getMockBody(url: string): string | null { return this.mockStore.getBody(url); }
 
@@ -105,7 +121,9 @@ export class HttpClient {
     const aborter = new AbortController();
     const future = new HttpFuture(this.log, aborter);
     const headers = req.headers ?? {};
-    Promise.resolve()
+    // La cadena se registra en `enVuelo` para que `idle()` pueda esperarla; se descuenta en el
+    // `finally`, así que una petición que falla tampoco deja el idle colgado.
+    const chain = Promise.resolve()
       .then(() => (globalThis.fetch as (input: string, init?: unknown) => Promise<{ status: number; text(): Promise<string>; headers: { forEach(cb: (v: string, k: string) => void): void } }>)(
         finalUrl, { method, headers, body, signal: aborter.signal },
       ))
@@ -124,7 +142,9 @@ export class HttpClient {
         future.fail(-1, String(e));
         this.log.push('http', `$http ${method} ${finalUrl} ERROR: ${String(e)}`);
         if (error) error(-1, String(e));
-      });
+      })
+      .finally(() => { this.enVuelo.delete(chain); });
+    this.enVuelo.add(chain);
     return future;
   }
 

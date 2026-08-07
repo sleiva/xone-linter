@@ -57,6 +57,23 @@ export class AppData {
     return this.currentUser;
   }
 
+  /**
+   * Vuelca la sesión: el registro de `getCurrentUser()` es exactamente lo que la app dejó en el
+   * global `user` al iniciar sesión (`MAP_TOKEN`, `MAP_EMAIL`, `MAP_USERID`…), porque ese global
+   * es un Proxy sobre ESTE registro.
+   */
+  dumpSession(): Record<string, unknown> {
+    return { ...this.getCurrentUser() };
+  }
+
+  /** Carga una sesión volcada antes. Muta el registro EN SITIO: el Proxy del global `user` ya
+   *  apunta a él y reemplazarlo dejaría al sandbox mirando el viejo. */
+  loadSession(session: Record<string, unknown>): void {
+    const record = this.getCurrentUser();
+    for (const key of Object.keys(record)) delete record[key];
+    Object.assign(record, session);
+  }
+
   getCurrentEnterprise(): Record<string, unknown> {
     const enterprise = {
       ID: 1,
