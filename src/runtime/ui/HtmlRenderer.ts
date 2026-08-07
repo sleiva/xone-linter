@@ -88,6 +88,11 @@ body{font-family:sans-serif;font-size:17px;margin:0;padding:8px;background:#eee}
 /* borde negro: es el default literal del oraculo (EditTextProperty.mm:750, corte #39), del que
    luego tiran forecolor / text-forecolor / border-color / text-border-color */
 .xone-prop>input:not([type=checkbox]),.xone-prop>textarea{border:1px solid #000;text-align:inherit}
+/* Corte #43: el multilínea del oráculo es un UITextView (EditTextProperty.h:55,
+   .mm:2380-2456), que NO tiene control de redimensionado. El default de Chrome para textarea es
+   resize:both, que pinta un tirador en la esquina inferior derecha — tinta inventada justo donde
+   se miden los insets del campo (cortes #24-#26) — y ofrece arrastrar la caja. */
+.xone-prop>textarea{resize:none}
 .xone-prop>input[type=checkbox]{align-self:flex-start}
 /* switch de check-type="switch": el UISwitch nativo mide 51x31 pt y se centra vertical
    pegado a la izquierda, escalando si la fila es mas baja (MICheckBox.mm:198-213) */
