@@ -11,6 +11,12 @@ export class ViewStack {
     return view;
   }
 
+  /** Apila una ViewState ya construida (refresco de la vista tras un evento). */
+  pushView(view: ViewState): ViewState {
+    this.stack.push(view);
+    return view;
+  }
+
   pop(): ViewState | undefined {
     return this.stack.pop();
   }

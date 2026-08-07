@@ -319,6 +319,38 @@ export class XoneRuntime {
     return this.persistence.seedCollection(collName, rows);
   }
 
+  /** Contexto sobre un objeto YA VIVO (el de la vista abierta), aplicándole `initialData`.
+   *  `selfObject` de la vista ya es el proxy, así que no se vuelve a envolver. */
+  private contextForObject(
+    live: DataObject,
+    collName: string,
+    initialData?: Record<string, unknown>,
+  ): XoneContext {
+    const coll = this.collections.get(collName);
+    if (!coll) throw new Error(`Colección "${collName}" no encontrada en el runtime`);
+    const self = live as DataObject & Record<string, unknown>;
+    if (initialData) {
+      for (const [key, value] of Object.entries(initialData)) self[key] = value;
+    }
+    return new XoneContext(self, coll, collName);
+  }
+
+  /** Deja en el stack la vista recién construida cuando sigue siendo la vista de esta coll, para
+   *  que `getCurrentView()` no devuelva el snapshot congelado del `push` inicial. */
+  private syncCurrentView(coll: XoneColl, view: ViewState): void {
+    const prev = this.viewStack.current;
+    if (prev?.collName !== coll.name) return;
+    // `buildView` reconstruye SOLO a partir del objeto: el estado de UI de la ventana
+    // (`showGroup`/`hideGroup`, drawers abiertos) vive en la ViewState y hay que conservarlo, o
+    // refrescar los valores tras un evento cerraría la página activa y los drawers.
+    // `buildView` no deja `activeGroup` a undefined: cae al grupo activo por DEFECTO. Así que la
+    // ventana manda sobre el default reconstruido, no al revés.
+    if (prev.activeGroup !== undefined) view.activeGroup = prev.activeGroup;
+    if (prev.openDrawers !== undefined) view.openDrawers = prev.openDrawers;
+    this.viewStack.pop();
+    this.viewStack.pushView(view);
+  }
+
   createContext(collName: string, initialData?: Record<string, unknown>): XoneContext {
     const coll = this.collections.get(collName);
     if (!coll) throw new Error(`Colección "${collName}" no encontrada en el runtime`);
@@ -380,7 +412,15 @@ export class XoneRuntime {
       return { success: false, error: err, context: this.createContext(options.collName), log: this.log };
     }
 
-    const context = this.createContext(options.collName, options.initialData);
+    // El oráculo tiene UN `EditObject` por vista abierta y TODOS los eventos de sus props actúan
+    // sobre él: por eso el `onclick` de un botón lee lo que el usuario acaba de teclear en un
+    // campo. Si la vista actual es de esta misma coll, reutilizamos su objeto vivo en vez de
+    // fabricar uno de usar y tirar (que perdía cada `set` anterior).
+    const openView = this.viewStack.current;
+    const live = openView?.collName === options.collName ? openView.selfObject : undefined;
+    const context = live
+      ? this.contextForObject(live, options.collName, options.initialData)
+      : this.createContext(options.collName, options.initialData);
 
     // Aseguramos que la ventana actual está en el stack de UI abstracta.
     if (!this.viewStack.current || this.viewStack.current.collName !== options.collName) {
@@ -419,6 +459,7 @@ export class XoneRuntime {
           result = this.executeNode(methodCall.name, { collName: coll.name, args: methodCall.args });
         }
         const view = buildView(coll, context.self);
+        this.syncCurrentView(coll, view);
         return { success: result.success, error: result.error, context, log: this.log, view };
       }
 
@@ -445,6 +486,7 @@ export class XoneRuntime {
       }
 
       const view = buildView(coll, context.self);
+      this.syncCurrentView(coll, view);
       return { success: true, context, log: this.log, view };
     } finally {
       this.activeExecution = prevExecution;
