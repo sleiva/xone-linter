@@ -2,6 +2,12 @@ import type { RuntimeLog } from '../RuntimeLog.js';
 import type { DataCollection } from './DataCollection.js';
 import type { PersistenceManager } from '../persistence/PersistenceManager.js';
 
+/** Lo que el JS ve al pedir `appData.getConnection(name)`. */
+export interface ConnectionHandle {
+  addExtendedProperty: (key: string, value: unknown) => void;
+  getExtendedProperty: (key: string) => string | undefined;
+}
+
 export class AppData {
   private collections = new Map<string, DataCollection>();
   private globalMacros = new Map<string, string>();
@@ -14,7 +20,21 @@ export class AppData {
     private readonly appName: string = 'app',
     private readonly filesRootProvider?: () => string,
     private readonly runNode?: (nodeName: string, args?: string[]) => { success: boolean; error?: Error },
+    private readonly connectionProvider?: (name: string) => ConnectionHandle,
   ) {}
+
+  /**
+   * `appData.getConnection(name)` — la conexión por nombre, para añadirle propiedades extendidas.
+   * Es lo que usa el `prepareConnections()` de las apps tras iniciar sesión, para inyectarle a la
+   * conexión online el `Data Source`, el usuario y el TOKEN.
+   */
+  getConnection(name: string): ConnectionHandle {
+    if (!this.connectionProvider) {
+      this.log.push('warning', `appData.getConnection("${name}"): runtime sin proveedor de conexiones`);
+      return { addExtendedProperty: () => {}, getExtendedProperty: () => undefined };
+    }
+    return this.connectionProvider(name);
+  }
 
   registerCollection(coll: DataCollection): void {
     this.collections.set(coll.name, coll);

@@ -1,4 +1,4 @@
-import type { XoneProjectModel, XoneColl, XoneGroup } from '../model/XoneModel.js';
+import type { XoneProjectModel, XoneColl, XoneGroup, XoneConnection } from '../model/XoneModel.js';
 import { createMacroResolver } from './macros/MacroResolver.js';
 import { resolveFieldMacros, resolveRawFieldMacros } from './macros/fieldMacros.js';
 import type { VmAdapter } from './vm/VmAdapter.js';
@@ -151,6 +151,7 @@ export class XoneRuntime {
         project.app.attributes['name'] || project.rootPath.split('/').pop() || 'app',
         () => this.ensureFilesRoot(),
         (nodeName, args) => this.executeNode(nodeName, { args }),
+        (name) => this.getConnection(name),
       ),
       'appData',
       this.log,
@@ -268,6 +269,43 @@ export class XoneRuntime {
     }
   }
 
+  /** Propiedades extendidas puestas en runtime, por nombre de conexión (`prepareConnections`). */
+  private readonly connProps = new Map<string, Map<string, string>>();
+  /** Conexiones JSON ya construidas, por nombre de conexión — para invalidarles la caché. */
+  private readonly jsonConnections = new Map<string, JsonCollectionConnection[]>();
+
+  /**
+   * Objeto de conexión que ve el JS: `appData.getConnection(name)`.
+   *
+   * Oráculo (`prepareConnections()` de las apps): se pide la conexión por nombre y se le añaden
+   * propiedades extendidas —`Data Source`, `User Id`, `Password`, `TOKEN`— que el framework usa a
+   * partir de ese momento. Aquí se guardan por nombre y **se invalida la caché** de las conexiones
+   * JSON ya construidas: una coll con `loadall="true"` ya habría cacheado el vacío al arrancar, y
+   * sin invalidar, inyectar el `Data Source` no serviría de nada.
+   */
+  getConnection(name: string): {
+    addExtendedProperty: (key: string, value: unknown) => void;
+    getExtendedProperty: (key: string) => string | undefined;
+  } {
+    const props = this.connProps.get(name) ?? new Map<string, string>();
+    this.connProps.set(name, props);
+    return {
+      addExtendedProperty: (key: string, value: unknown) => {
+        props.set(key, String(value));
+        this.log.push('custom', `conexión "${name}": ${key} = ${key === 'Password' || key === 'TOKEN' ? '…' : String(value)}`);
+        for (const c of this.jsonConnections.get(name) ?? []) c.invalidate();
+      },
+      getExtendedProperty: (key: string) => props.get(key),
+    };
+  }
+
+  /** URL efectiva de una conexión: la propiedad extendida de runtime gana sobre el connstring. */
+  private connectionUrl(conn: XoneConnection): string | undefined {
+    const runtimeDs = this.connProps.get(conn.name)?.get('Data Source');
+    if (runtimeDs && /^https?:\/\//i.test(runtimeDs)) return runtimeDs;
+    return connstringUrl(conn);
+  }
+
   private buildConnection(coll: XoneColl): CollectionConnection {
     const resolved = resolveConnection(coll, this.project.app);
     const kind = classifyConnection(resolved);
@@ -275,14 +313,19 @@ export class XoneRuntime {
       return new GpsCollectionConnection(this.device);
     }
     if (kind === 'json' && resolved) {
-      return new JsonCollectionConnection(
+      const conn = new JsonCollectionConnection(
         coll.name,
         resolved.name,
         this.project.rootPath,
         this.log,
         (url) => this.http.getMockBody(url),
-        connstringUrl(resolved),
+        // Proveedor: la propiedad extendida puesta en runtime GANA sobre el connstring del XML,
+        // que es justo lo que hace `prepareConnections()` al inyectar el `Data Source`.
+        () => this.connectionUrl(resolved),
       );
+      const yaHay = this.jsonConnections.get(resolved.name);
+      if (yaHay) yaHay.push(conn); else this.jsonConnections.set(resolved.name, [conn]);
+      return conn;
     }
     if (kind === 'stub' && resolved) {
       return new StubCollectionConnection(coll.name, resolved.attributes.connstring, this.log);

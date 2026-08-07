@@ -15,8 +15,17 @@ export class JsonCollectionConnection implements CollectionConnection {
     private readonly rootPath: string,
     private readonly log: RuntimeLog,
     private readonly httpMockLookup?: (url: string) => string | null,
-    private readonly connstringUrl?: string,
+    /** Proveedor, no constante: el `Data Source` puede llegar en runtime
+     *  (`prepareConnections()` corre DESPUÉS del login, cuando esta conexión ya existe). */
+    private readonly urlProvider?: () => string | undefined,
   ) {}
+
+  /** Tira la caché para que el siguiente `query` vuelva a resolver la URL. La llama el runtime
+   *  cuando se añade una propiedad extendida a esta conexión: sin esto, una coll con
+   *  `loadall="true"` habría cacheado el vacío al arrancar y la inyección no serviría de nada. */
+  invalidate(): void {
+    this.cache = null;
+  }
 
   private load(): Record<string, unknown>[] {
     if (this.cache) return this.cache;
@@ -31,8 +40,9 @@ export class JsonCollectionConnection implements CollectionConnection {
         }
       }
     }
-    if (this.connstringUrl && this.httpMockLookup) {
-      const body = this.httpMockLookup(this.connstringUrl);
+    const url = this.urlProvider?.();
+    if (url && this.httpMockLookup) {
+      const body = this.httpMockLookup(url);
       if (body != null) {
         try {
           const parsed = JSON.parse(body);
