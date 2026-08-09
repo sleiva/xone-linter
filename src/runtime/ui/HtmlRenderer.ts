@@ -340,7 +340,14 @@ function renderFrame(
   const mergedOv = (marginOv || floatOv) ? { ...overrides, ...marginOv, ...floatOv } : overrides;
   const style = inline(f.attributes, scale, true, mergedOv, resolveImg);
   const cls = classAttr('xone-frame', f.attributes);
-  const childParentPx = resolveHeightPx(f.attributes.height, parentPx, scale);
+  // Oráculo EditFrameControl.mm:2798-2811 (getParentHeight): un frame con height_cache==nil
+  // —no declara `height`— es TRANSPARENTE para la resolución de %: reenvía la altura de su
+  // ABUELO en vez de cortar la cadena. El test es la PRESENCIA del atributo, no que sea
+  // resoluble: con `-1`/`-2` el oráculo entra por la rama height_cache!=nil y propaga un alto
+  // NEGATIVO (:2758-2759), asimetría que su gemelo de anchura sí protege (:2779) y que aquí no
+  // se replica — 0 consumidores en el corpus. `height=""` cuenta como ausente (:2725-2728).
+  const declaraHeight = (f.attributes.height ?? '').trim() !== '';
+  const childParentPx = declaraHeight ? resolveHeightPx(f.attributes.height, parentPx, scale) : parentPx;
   const children = renderChildren(f.childOrder, f.frames, f.controls, resolve, scale, childParentPx, resolveImg, rowJustifyFor(f.attributes), rowAlignFor(f.attributes));
   return `<div ${cls}${style}>${children}</div>`;
 }
@@ -417,7 +424,16 @@ function renderChildren(
     .map(row => {
       // los hijos de una fila (frame único o multi-hijo) resuelven sus márgenes % verticales
       // contra la altura px del FRAME contenedor (parentPx), no contra la fila-artefacto.
-      if (row.length === 1 && row[0].it.kind === 'frame') return renderFrame(row[0].it.f, resolve, scale, parentPx, undefined, resolveImg);
+      // El atajo se MANTIENE (meter el frame en un `.xone-row` cambiaría el DOM de los 148
+      // frames solitarios del corpus), pero la conversión %→px de la rama de fila (:438) no
+      // llegaba aquí por el `&& row.length > 1` de `hasPct`. El oráculo resuelve el % contra
+      // el padre sin mirar cuántos hermanos tiene la fila.
+      if (row.length === 1 && row[0].it.kind === 'frame') {
+        const solo = row[0].it.f;
+        const soloPx = PCT_RE.test((solo.attributes.height ?? '').trim())
+          ? resolveHeightPx(solo.attributes.height, parentPx, scale) : undefined;
+        return renderFrame(solo, resolve, scale, parentPx, soloPx !== undefined ? { height: `${soloPx}px` } : undefined, resolveImg);
+      }
       // Direction 2: el CONTENEDOR conserva su align-items:<h> (bare/solitary children —
       // frame único, `.xone-row:has(>:only-child)` display:contents — siguen ese align); cada
       // `.xone-row` real se estira a ancho completo con align-self:stretch (overridea el
