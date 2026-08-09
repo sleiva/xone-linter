@@ -445,13 +445,22 @@ function renderChildren(
         abTitle >= 0 ? 'flex-wrap:nowrap' : '',
       ].filter(Boolean).join(';');
       const pcts = row.map(r => { const m = PCT_RE.exec((r.attributes.height ?? '').trim()); return m ? parseFloat(m[1]) : undefined; });
-      const hasPct = pcts.some(p => p !== undefined) && row.length > 1;
+      // A2: la rama de px NO mira cuántos hermanos hay. Oráculo EditPropertyControl.mm:2397:
+      // el % del control se resuelve contra el EditFrameControl contenedor y la recursión nunca
+      // se detiene en el EditPageRow, así que la fila no participa. Lo respalda
+      // EditPageRow.mm:233-276, cuyo máximo de hijos no ramifica por cuántos haya.
+      const anyPct = pcts.some(p => p !== undefined);
+      // El best-effort de abajo (sin parentPx) SÍ sigue exigiendo fila multi-hijo: darle
+      // height:maxPct% a una fila de un solo hijo le pondría altura propia justo donde no hay
+      // base para resolver, y la fila es precisamente lo que el oráculo ignora. Límite fijado
+      // por el test «A2 LÍMITE» de height-chain.test.ts — no es un olvido.
+      const hasPct = anyPct && row.length > 1;
       // Oráculo EditPageRow.mm:233-276 (línea 275): la altura de la línea es el MÁXIMO de
       // TODOS los hijos (%, fijos o intrínsecos). Con parentPx conocido convertimos cada
       // hijo % a px contra el PADRE (EditPropertyControl.mm:3504) y dejamos la fila en
       // altura auto — así un hermano fijo/intrínseco que exceda el máximo % agranda la
       // fila (fila mixta) en vez de desbordarla.
-      if (hasPct && parentPx !== undefined) {
+      if (anyPct && parentPx !== undefined) {
         const inner = row.map((r, i) => {
           const px = pcts[i] !== undefined ? resolveHeightPx(r.attributes.height, parentPx, scale) : undefined;
           let ov: Record<string, string> | undefined = px !== undefined ? { height: `${px}px` } : undefined;
