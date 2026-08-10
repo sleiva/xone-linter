@@ -1141,6 +1141,19 @@ function renderControl(
         : '';
       const ulClass = horizontal ? 'xone-grid xone-grid--h' : 'xone-grid';
       const ul = (inner: string) => `<ul class="${ulClass}"${gridStyle}>${inner}</ul>`;
+      // #44 — la base de los % de la CELDA. Oráculo XoneRecord.mm:9679-9691: `mainHeight` sale de
+      // `mainview`, que es una vista del tamaño de la celda en el camino de grid
+      // (XoneTableContent.mm:11440-11448) y el propio UITableView cuando no hay `cell-height`.
+      // Nunca es la altura de la coll, que es lo que se pasaba aquí.
+      // La caja del Z puede venir ya resuelta en el override (A2 convierte % a px antes de llamar
+      // aquí), así que se lee igual que en :885: primero el override, luego el atributo.
+      const ownPx = overrides?.height?.endsWith('px')
+        ? parseFloat(overrides.height)
+        : resolveHeightPx(c.attributes.height, parentPx, scale);
+      // Exigir > 0 descarta el centinela height="-1" y el Z sin altura: sin caja no hay base, y
+      // se deja `undefined` para que el hijo emita % literal (misma decisión que A2).
+      const boxPx = ownPx !== undefined && ownPx > 0 ? ownPx : undefined;
+      const cellPx = c.cellHeight ? resolveHeightPx(c.cellHeight, boxPx, scale) : boxPx;
       if (c.listRows) {
         const cellBg = (i: number): string => {
           const raw = i % 2 === 0 ? c.cellColors?.even : c.cellColors?.odd;
@@ -1149,7 +1162,7 @@ function renderControl(
         };
         const items = c.listRows
           .map((row, i) => `<li${cellBg(i)}>${row.groups
-            .map(g => renderChildren(g.childOrder, g.frames, g.controls, resolve, scale, parentPx, resolveImg, rowJustifyFor(g.attributes), rowAlignFor(g.attributes)))
+            .map(g => renderChildren(g.childOrder, g.frames, g.controls, resolve, scale, cellPx, resolveImg, rowJustifyFor(g.attributes), rowAlignFor(g.attributes)))
             .join('')}</li>`)
           .join('');
         return wrap(`${label}${ul(items)}`);

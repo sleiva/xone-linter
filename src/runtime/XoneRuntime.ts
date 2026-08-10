@@ -849,6 +849,7 @@ export class XoneRuntime {
       const cellEven = coll.attributes['cell-even-color'];
       const cellOdd = coll.attributes['cell-odd-color'];
       if (cellEven || cellOdd) c.cellColors = { even: cellEven, odd: cellOdd };
+      c.cellHeight = coll.attributes['cell-height'];
       c.listRows = items.map(item => ({
         groups: coll.groups.filter(g => isPageGroup(g.attributes)).map(g => buildGroup(g, item, true)),
       }));
