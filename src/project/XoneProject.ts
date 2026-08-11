@@ -18,6 +18,7 @@ import type {
   XoneInlineEvent,
   XoneConnection,
   XoneNode,
+  XoneStrayChild,
   SourceLocation,
 } from '../model/XoneModel.js';
 
@@ -32,6 +33,53 @@ function asArray<T>(node: unknown): T[] {
   if (Array.isArray(node)) return node as T[];
   return [node as T];
 }
+
+/** ¿El nodo contiene `<action>`? Un hijo así es un nodo de acciones, no un hijo perdido. Tolera
+ *  el hijo no-objeto (un `<tag/>` sin atributos llega como string). */
+function hasAction(el: unknown): boolean {
+  if (typeof el !== 'object' || el === null) return false;
+  return asArray<XoneXmlNode>((el as XoneXmlNode).action).length > 0;
+}
+
+/** ¿Es `tag` un hijo aceptable, o un tag conocido APAGADO con una `x`?
+ *
+ *  `allow` es la lista blanca: lo que NO se reporta. `known` es la gramática completa e incluye
+ *  tags que SÍ se reportan —`field`—, y existe precisamente por eso: `<field>` tiene que dar
+ *  `COLL_FIELD_AS_COLUMN`, pero `<fieldx>` es ese mismo nodo apagado y no se reporta. Si la pelada
+ *  de la `x` consultara la lista blanca, no encontraría `field` y `<fieldx>` saldría como
+ *  desconocido, contra la regla que enuncia el spec.
+ *
+ *  La convención de la casa apaga un nodo con una `x` delante o detrás, igual que en los atributos
+ *  (`xheight`, `xcell-height`, `xedit-inrow`, `selecteditemx`). */
+function isKnownChildTag(tag: string, allow: ReadonlySet<string>, known: ReadonlySet<string>): boolean {
+  if (allow.has(tag)) return true;
+  const sinX = tag.startsWith('x') ? tag.slice(1)
+    : tag.endsWith('x') ? tag.slice(0, -1)
+    : undefined;
+  return sinX !== undefined && known.has(sinX);
+}
+
+/** Tags que el parser consume dentro de un `<group>` o de un `<frame>`, o que son legítimos ahí.
+ *
+ *  CENSADO, no adivinado: sobre los 341 `<group>` y 678 `<frame>` de las 5 apps de `xone_app`, los
+ *  únicos tags que aparecen como hijos son `prop` (605 en group + 2216 en frame), `frame` (359+319),
+ *  `contents` (7+60), `macro` (1, `MyAllXOne/Chat.xne:22`, dentro de `<group name="General">`) e
+ *  `include-layout` (1, `MyAllXOne/EspecialHerencia.xne:14`, dentro de `<group name="Group2">`).
+ *  Ninguno de ellos lleva `<action>` dentro. El barrido de `xone-help-docs/topics/` (18 ficheros,
+ *  309 bloques ```xml) documenta el mismo conjunto y ni uno más: `<group>` → frame/prop/
+ *  include-layout/contents; `<frame>` → prop/frame/contents.
+ *
+ *  `contents` está aquí porque lo consume `collectContents`, que recorre groups y frames recursivamente.
+ *  `macro` e `include-layout` NO los parsea el modelo a este nivel, pero existen en el corpus y en la
+ *  documentación: reportarlos sería un falso positivo. `group` NO entra: la jerarquía documentada es
+ *  estricta (`coll > group > frame > prop`) y el corpus tiene 0 grupos anidados. */
+const CONTAINER_CHILD_ALLOWLIST: ReadonlySet<string> = new Set<string>([
+  'prop', 'frame', 'contents', 'macro', 'include-layout',
+]);
+
+/** Igual que la de coll: `field` no está en la lista blanca (tiene que dar error), pero sí en la
+ *  gramática, para que `<fieldx>` no salte. */
+const CONTAINER_KNOWN_TAGS: ReadonlySet<string> = new Set<string>([...CONTAINER_CHILD_ALLOWLIST, 'field']);
 
 export class XoneProject {
   readonly model: XoneProjectModel;
@@ -344,6 +392,9 @@ export class XoneProject {
     const events: XoneEvent[] = [];
     const macros: XoneMacro[] = [];
     const contents: XoneContents[] = [];
+    /** Hijos perdidos de los `<group>`/`<frame>`, que `parseContainerChildren` va llenando y que
+     *  acaban en el mismo `strayChildren` de la coll, con el contenedor anotado. */
+    const containerStrays: NonNullable<XoneColl['strayChildren']> = [];
 
     // Grupos
     const orderedGroups = (orderedRoot ?? []).filter(el => orderedTag(el) === 'group');
@@ -351,7 +402,9 @@ export class XoneProject {
     for (const g of asArray<XoneXmlNode>(collNode.group)) {
       const gAttrs = getAttributes(g);
       const orderedGroupKids = orderedGroups[gi] ? orderedKids(orderedGroups[gi]) : undefined;
-      const { frames, props, childOrder } = this.parseContainerChildren(g, path, orderedGroupKids);
+      const { frames, props, childOrder } = this.parseContainerChildren(
+        g, path, orderedGroupKids, containerStrays, `group "${gAttrs.name ?? gAttrs.id ?? '(sin name)'}"`,
+      );
       groups.push({ id: gAttrs.id, name: gAttrs.name, attributes: gAttrs, frames, props, childOrder, location: loc(path) });
       gi++;
     }
@@ -359,6 +412,15 @@ export class XoneProject {
     // Props de nivel coll (fuera de group)
     for (const p of asArray<XoneXmlNode>(collNode.prop)) {
       topLevelProps.push(this.parseProp(p, path));
+    }
+
+    // Un `<frame>` hijo DIRECTO de `<coll>` (documentado en `topics/02d` §10.2; 0 usos en el corpus)
+    // no lo monta el modelo — hueco anterior a este corte. Sus hijos perdidos sí se anotan, para que
+    // un `<field>` ahí dentro no quede en silencio: es el mismo defecto un nivel más abajo. Del
+    // resultado del parseo sólo interesa el efecto sobre `containerStrays`.
+    for (const f of asArray<XoneXmlNode>(collNode.frame)) {
+      const fAttrs = getAttributes(f);
+      this.parseContainerChildren(f, path, undefined, containerStrays, `frame "${fAttrs.name ?? '(sin name)'}"`);
     }
 
     // Macros
@@ -453,32 +515,35 @@ export class XoneProject {
     //   · `<platform name="iphone" …>` es un hijo válido y NO estructural.
     //   · `selecteditemx` es `selecteditem` APAGADO con una `x` — la convención de la casa, la
     //     misma de `xheight`/`xedit-inrow` en atributos. No es una errata.
-    // `field` NO entra en la lista blanca: a nivel coll tiene 0 apariciones en el corpus y la
-    // documentación lo sitúa sólo dentro de un evento (`<onchange><field name="…">`).
+    //   · `include-layout` es hijo directo de `<coll>` en la documentación
+    //     (`topics/02d-xml-layouts-herencia.md` §10.2, «Ejemplo de uso en una coll»), y también hijo
+    //     de un `<group>` (§10.1, y 1 caso en el corpus). 0 usos a nivel coll en el corpus, así que
+    //     sólo el oráculo documental lo cazaba.
+    // `field` NO entra en la lista blanca: a nivel coll tiene 0 apariciones en el corpus (sus 38
+    // apariciones vivas son TODAS ámbito de `<onchange>`) y la documentación lo sitúa sólo dentro
+    // de un evento o de un `<asfilter>`.
     const collChildAllowlist = new Set<string>([
       'group', 'prop', 'frame', 'contents', 'connection', 'macro', 'script', 'node',
-      'permissions', 'method', 'include', 'rule', 'asfilter', 'item', 'platform',
+      'permissions', 'method', 'include', 'include-layout', 'rule', 'asfilter', 'item', 'platform',
       ...eventNames,
     ]);
-    const isKnownCollChild = (tag: string): boolean => {
-      if (collChildAllowlist.has(tag)) return true;
-      const sinX = tag.startsWith('x') ? tag.slice(1)
-        : tag.endsWith('x') ? tag.slice(0, -1)
-        : undefined;
-      return sinX !== undefined && collChildAllowlist.has(sinX);
-    };
+    const collKnownTags = new Set<string>([...collChildAllowlist, 'field']);
     const strayChildren: NonNullable<XoneColl['strayChildren']> = [];
     for (const key of Object.keys(collNode)) {
       if (key.startsWith('@_') || key === '#text') continue;
-      if (isKnownCollChild(key)) continue;
+      if (isKnownChildTag(key, collChildAllowlist, collKnownTags)) continue;
       for (const el of asArray<XoneXmlNode>(collNode[key])) {
-        if (typeof el !== 'object' || el === null) continue;
         // los nodos custom con <action> ya los recogió el bucle de arriba como `nodes`
-        if (!reservedChildTags.has(key) && asArray<XoneXmlNode>(el.action).length > 0) continue;
-        const elAttrs = getAttributes(el);
-        strayChildren.push({ tag: key, name: elAttrs.name, attributes: elAttrs });
+        if (!reservedChildTags.has(key) && hasAction(el)) continue;
+        // Un hijo sin atributos o con sólo texto (`<field>CIF</field>`, `<field/>`) llega aquí como
+        // string, no como objeto: descartarlo lo devolvía al silencio que esta rama existe para
+        // romper. Se recoge igual, con atributos vacíos.
+        strayChildren.push({ tag: key, name: getAttributes(el).name, attributes: getAttributes(el) });
       }
     }
+    // Y los hijos perdidos de los `<group>`/`<frame>`, que `parseContainerChildren` fue anotando en
+    // esta misma lista con el contenedor donde estaban.
+    strayChildren.push(...containerStrays);
 
     return {
       name,
@@ -510,18 +575,40 @@ export class XoneProject {
   }
 
   /** Parsea un <frame> recursivamente (frames anidados + props directas). */
-  private static parseFrame(node: XoneXmlNode, path: string, orderedKidsArr?: unknown[]): XoneFrame {
+  private static parseFrame(
+    node: XoneXmlNode, path: string, orderedKidsArr?: unknown[], strayOut?: XoneStrayChild[],
+  ): XoneFrame {
     const attrs = getAttributes(node);
-    const { frames, props, childOrder } = this.parseContainerChildren(node, path, orderedKidsArr);
+    const { frames, props, childOrder } = this.parseContainerChildren(
+      node, path, orderedKidsArr, strayOut, `frame "${attrs.name ?? '(sin name)'}"`,
+    );
     return { name: attrs.name, attributes: attrs, frames, props, childOrder, location: loc(path) };
   }
 
   /** Rellena frames/props (orden documental dentro de cada tipo) y, si hay hijos ordenados,
    *  el childOrder con la secuencia mixta. Sin orderedKids → comportamiento previo (frames
-   *  luego props), sin childOrder. */
+   *  luego props), sin childOrder.
+   *
+   *  Y, si le pasan `strayOut`, anota ahí los hijos que NO consume —el mismo canal que a nivel de
+   *  coll—, con `container` puesto. Sin esto el defecto que caza `CollShapeRule` sobrevivía un nivel
+   *  más abajo: los tres `<field>` DENTRO de un `<group>` daban 0 problemas, así que mover los nodos
+   *  al grupo sin renombrarlos convertía 3 errores en luz verde y el linter premiaba el arreglo a
+   *  medias. */
   private static parseContainerChildren(
     node: XoneXmlNode, path: string, orderedKidsArr?: unknown[],
+    strayOut?: XoneStrayChild[], container?: string,
   ): { frames: XoneFrame[]; props: XoneProp[]; childOrder?: ('frame' | 'prop')[] } {
+    if (strayOut && container) {
+      for (const key of Object.keys(node)) {
+        if (key.startsWith('@_') || key === '#text') continue;
+        if (isKnownChildTag(key, CONTAINER_CHILD_ALLOWLIST, CONTAINER_KNOWN_TAGS)) continue;
+        for (const el of asArray<XoneXmlNode>(node[key])) {
+          // un nodo de acciones no es un hijo perdido; `field` se reporta siempre, con o sin action
+          if (key !== 'field' && hasAction(el)) continue;
+          strayOut.push({ tag: key, name: getAttributes(el).name, attributes: getAttributes(el), container });
+        }
+      }
+    }
     const normalFrames = asArray<XoneXmlNode>(node.frame);
     const normalProps = asArray<XoneXmlNode>(node.prop);
     const frames: XoneFrame[] = [];
@@ -535,7 +622,7 @@ export class XoneProject {
         let fi = 0, pi = 0;
         for (const k of kinds) {
           if (k === 'frame') {
-            frames.push(this.parseFrame(normalFrames[fi], path, orderedKids(orderedFrameEls[fi])));
+            frames.push(this.parseFrame(normalFrames[fi], path, orderedKids(orderedFrameEls[fi]), strayOut));
             fi++;
           } else {
             props.push(this.parseProp(normalProps[pi++], path));
@@ -544,7 +631,7 @@ export class XoneProject {
         return { frames, props, childOrder: kinds };
       }
     }
-    for (const f of normalFrames) frames.push(this.parseFrame(f, path));
+    for (const f of normalFrames) frames.push(this.parseFrame(f, path, undefined, strayOut));
     for (const p of normalProps) props.push(this.parseProp(p, path));
     return { frames, props };
   }

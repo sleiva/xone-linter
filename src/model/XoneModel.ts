@@ -47,6 +47,16 @@ export interface XoneGroup {
   location: SourceLocation;
 }
 
+/** Un hijo de `<coll>`, `<group>` o `<frame>` que NO consumió ninguna rama del parser. */
+export interface XoneStrayChild {
+  tag: string;
+  name?: string;
+  attributes: Record<string, string>;
+  /** Contenedor donde vivía, para que el mensaje pueda decirlo: `group "General"`,
+   *  `frame "buttonFrm"`. Ausente si era hijo DIRECTO de `<coll>`. */
+  container?: string;
+}
+
 export interface XoneColl {
   name: string;
   attributes: Record<string, string>;
@@ -57,12 +67,18 @@ export interface XoneColl {
   contents: XoneContents[];
   connections: XoneConnection[];
   nodes: XoneNode[];
-  /** Hijos directos de `<coll>` que NO consumió ninguna rama del parser: ni estructurales
-   *  (group/prop/frame/contents), ni eventos, ni nodos custom con `<action>` dentro. Se recogen
-   *  para que `CollShapeRule` pueda reportarlos: sin esto un `<field name="X"/>` hijo de coll
-   *  desaparece antes de llegar al modelo y la coll pasa por buena. Mismo patrón que
-   *  `XoneProjectModel.parseErrors`, que alimenta a `XmlWellFormedRule`. */
-  strayChildren?: Array<{ tag: string; name?: string; attributes: Record<string, string> }>;
+  /** Hijos de `<coll>` —y de sus `<group>`/`<frame>` a cualquier profundidad— que NO consumió
+   *  ninguna rama del parser: ni estructurales (group/prop/frame/contents), ni eventos, ni nodos
+   *  custom con `<action>` dentro. Se recogen para que `CollShapeRule` pueda reportarlos: sin esto
+   *  un `<field name="X"/>` desaparece antes de llegar al modelo y la coll pasa por buena — y el
+   *  agujero sobrevivía un nivel más abajo, así que meter los `<field>` en un `<group>` sin
+   *  renombrarlos daba luz verde. Mismo patrón que `XoneProjectModel.parseErrors`, que alimenta a
+   *  `XmlWellFormedRule`.
+   *
+   *  `<field>` sólo es válido dentro de un evento (`<onchange><field name="…">`) o de un
+   *  `<asfilter>` (`topics/02c-xml-contents-patrones.md` §6.6, con su propia tabla de atributos:
+   *  `fldname`, `oper`, `width`, `tooltip`, `newline`); nunca como declaración de columna. */
+  strayChildren?: XoneStrayChild[];
   location: SourceLocation;
 }
 
