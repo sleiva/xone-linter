@@ -850,6 +850,10 @@ export class XoneRuntime {
       const cellOdd = coll.attributes['cell-odd-color'];
       if (cellEven || cellOdd) c.cellColors = { even: cellEven, odd: cellOdd };
       c.cellHeight = coll.attributes['cell-height'];
+      // #46 — el ancho de celda de la tira horizontal (XoneTableContent.mm:2006-2018). Se pasa
+      // crudo: el renderer decide si lo aplica (sólo camino horizontal) y lo escala por el eje
+      // de ancho, que aquí no se conoce.
+      c.cellWidth = coll.attributes['cell-width'];
       c.listRows = items.map(item => ({
         groups: coll.groups.filter(g => isPageGroup(g.attributes)).map(g => buildGroup(g, item, true)),
       }));

@@ -39,6 +39,32 @@ export function xoneLengthToCss(v?: string, scale = 1): string | undefined {
   return `${Number((n * scale).toFixed(1))}px`;
 }
 
+/** Ancho de celda de una tira horizontal, desde el `cell-width` de la coll de contents.
+ *
+ *  Oráculo `XoneTableContent.mm:2011-2014`: con `%` el ancho se resuelve contra
+ *  `gridView2.bounds.size.width` —que en CSS es el content-box del `<ul>`, así que el
+ *  porcentaje se emite TAL CUAL y lo resuelve el navegador—; sin `%`, por
+ *  `appScaleFactorWidth`, o sea el eje de ANCHO (`scaleW`), nunca el de alto.
+ *
+ *  Un valor que no declara ancho devuelve `undefined`, y entonces la celda la dimensiona su
+ *  contenido: es lo que hace el oráculo cuando `cellWith` se queda en 0. Ahí caen el atributo
+ *  ausente, el cero, los negativos y los centinelas `-1`/`-2`, que son idioma de `width`/`height`
+ *  de un control (`auto` y `100%`) y como ancho de celda colarían una caja inventada.
+ *
+ *  LÍMITE DECLARADO: el oráculo usa `atof`, que se come el sufijo (`600px` → 600). Aquí se
+ *  reutiliza el regex de `xoneLengthToCss`, más estricto, que sólo acepta `600` y `600p`. El
+ *  corpus no tiene otras formas (`600p`, `630p`, `220p`, `100%`). */
+export function cellWidthCss(raw: string | undefined, scaleW: number): string | undefined {
+  if (raw == null) return undefined;
+  const s = String(raw).trim();
+  if (s === '') return undefined;
+  const pct = s.match(/^(\d+(?:\.\d+)?)\s*%$/);
+  if (pct) return parseFloat(pct[1]) > 0 ? `${parseFloat(pct[1])}%` : undefined;
+  const css = xoneLengthToCss(s, scaleW);
+  if (css === undefined || !css.endsWith('px')) return undefined;   // filtra los centinelas
+  return parseFloat(css) > 0 ? css : undefined;
+}
+
 /** Resuelve un nombre pelado (basename) contra el árbol real de la app (p. ej.
  *  `icons/fondo.png`); ver `XoneProjectModel.imageIndex` / `XoneRuntime.renderHtml`. */
 export type ResolveImg = (name: string, kind?: ImgKind) => string;

@@ -22,6 +22,7 @@ export interface UIControl {
   listRows?: UIListRow[];
   cellColors?: { even?: string; odd?: string }; // cell-even-color/cell-odd-color del coll (striping de filas)
   cellHeight?: string;                          // cell-height del coll de contents: la base de los % de la CELDA
+  cellWidth?: string;                           // cell-width del coll de contents: el ancho de celda de la tira horizontal
 }
 
 export function buildControl(prop: XoneProp, data: DataObject, parentDisabled = false, contentVisibility = false): UIControl {

@@ -2,7 +2,7 @@ import type { ViewState } from './ViewState.js';
 import { groupKey, isDrawerGroup, isFixedGroup, isRenderablePage, type UIGroup } from './Group.js';
 import type { UIFrame } from './Frame.js';
 import type { UIControl } from './Control.js';
-import { styleDeclsFromAttributes, declsToInline, xoneImgToCss, xoneLengthToCss, xoneColorToCss, resolveHeightPx, textBorderDecls, fullTextBorderWidth, parseAlign, normalizeScale, type ResolveImg, type Scale } from './styleMap.js';
+import { styleDeclsFromAttributes, declsToInline, xoneImgToCss, xoneLengthToCss, xoneColorToCss, resolveHeightPx, textBorderDecls, fullTextBorderWidth, parseAlign, normalizeScale, cellWidthCss, type ResolveImg, type Scale } from './styleMap.js';
 import { APP_FONT_FACTOR_DEFAULT, PROP_FONT_SIZE_DEFAULT, TEXT_INSET_PT, FIELD_INSET_PT, LABEL_WRAP_SLACK_PT, labelFontSize, labelBoxWidth, fieldFontSize, textRowHeightPt, toCssPx } from './fontSize.js';
 
 // max-width:420px es el mismo RENDER_WIDTH usado por XoneRuntime.renderHtml para calcular
@@ -163,10 +163,13 @@ body{font-family:sans-serif;font-size:17px;margin:0;padding:8px;background:#eee}
    justify-items:stretch por defecto de CSS Grid ya estira el li a su pista, y width:100% sobre
    una pista resuelve contra esa misma pista ⇒ mismo resultado. Confirmado con el único
    consumidor del corpus, MyAllXOne/Menu (gallery-columns:3): li 125.6 / ul 376.8 = 1/3, IDÉNTICO
-   con y sin esta regla (comparado renderizando la coll con y sin la línea en el <style>). */
+   con y sin esta regla (comparado renderizando la coll con y sin la línea en el <style>).
+   #46 — el ancho de la celda horizontal es el cell-width de la coll (XoneTableContent.mm:2006-2018),
+   que el <ul> trae en --xone-cell-w. Sin variable, auto = el comportamiento anterior al corte. */
 .xone-grid:not(.xone-grid--h)>li{width:100%}
 .xone-grid--h{flex-wrap:nowrap;overflow-x:auto}
 .xone-grid--h>li{flex:0 0 auto}
+.xone-grid--h>li{width:var(--xone-cell-w,auto)}
 .xone-drawer{position:fixed;top:0;bottom:0;width:80%;max-width:320px;background:#fff;box-shadow:0 0 12px rgba(0,0,0,.3);overflow:auto;z-index:50}
 .xone-drawer[data-drawer-orientation="right"]{right:0}
 .xone-drawer[data-drawer-orientation="left"]{left:0}
@@ -315,6 +318,11 @@ function renderDrawer(
   const children = renderChildren(g.childOrder, g.frames, g.controls, resolve, scale, parentPx, resolveImg, rowJustifyFor(g.attributes), rowAlignFor(g.attributes));
   const openAttr = open ? ' data-open="true"' : ' data-open="false" hidden';
   return `<aside ${cls}${style} data-id="${esc(g.id ?? '')}" data-drawer-orientation="${esc(orient)}"${openAttr}>${children}</aside>`;
+}
+
+function cellWidthDecl(raw: string | undefined, scaleW: number): string | undefined {
+  const w = cellWidthCss(raw, scaleW);
+  return w ? `--xone-cell-w:${w}` : undefined;
 }
 
 /** Overrides de posición para un frame `floating="true"` (fiel a EditFrameControl.mm:359-405):
@@ -1149,11 +1157,16 @@ function renderControl(
       // Horizontal). Con gallery-columns>0 el oráculo haría grid de N filas scrolleando en horizontal
       // → diferido (sin consumidor real); se queda con la ruta grid.
       const horizontal = !hasCols && (c.attributes['grid-layout'] ?? c.attributes.orientation) === 'horizontal';
-      const gridStyle = hasCols
-        ? ` style="display:grid;grid-template-columns:repeat(${cols},minmax(0,1fr))"`
-        : '';
+      const styleParts = [
+        hasCols ? `display:grid;grid-template-columns:repeat(${cols},minmax(0,1fr))` : undefined,
+        // #46 — SÓLO en el camino horizontal: con columnas el oráculo reparte gridW/N
+        // (:1996-2002) y el cell-width de la coll queda inerte (MenuControles declara 220p y
+        // nadie lo mira). Emitirlo ahí sería infiel, no una mejora.
+        horizontal ? cellWidthDecl(c.cellWidth, scale.w) : undefined,
+      ].filter(Boolean);
+      const ulStyle = styleParts.length ? ` style="${styleParts.join(';')}"` : '';
       const ulClass = horizontal ? 'xone-grid xone-grid--h' : 'xone-grid';
-      const ul = (inner: string) => `<ul class="${ulClass}"${gridStyle}>${inner}</ul>`;
+      const ul = (inner: string) => `<ul class="${ulClass}"${ulStyle}>${inner}</ul>`;
       // #44 — la base de los % de la CELDA. Oráculo XoneRecord.mm:9679-9691: `mainHeight` sale de
       // `mainview`, que es una vista del tamaño de la celda en el camino de grid
       // (XoneTableContent.mm:11440-11448) y el propio UITableView cuando no hay `cell-height`.
