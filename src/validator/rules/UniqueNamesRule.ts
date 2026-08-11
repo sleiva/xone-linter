@@ -43,6 +43,20 @@ export class UniqueNamesRule implements ValidationRule {
         check(frame.name, 'frame', frame.location.file);
       }
     }
+    const groupIds = new Set<string>();
+    for (const g of coll.groups) {
+      if (g.id === undefined) continue;   // la ausencia ya la cubre GROUP_MISSING_ID
+      if (groupIds.has(g.id)) {
+        result.error(
+          'DUPLICATE_GROUP_ID',
+          `En "${coll.name}" hay dos <group id="${g.id}">: el id de un grupo es único en la coll `
+          + '(dos iguales dan comportamiento indefinido en el device).',
+          coll.location.file,
+          coll.location,
+        );
+      }
+      groupIds.add(g.id);
+    }
     // Los <contents> viven en su propio namespace: un prop Z (contents="X") y su
     // <contents name="X"> comparten nombre a propósito (binding XOne), NO es duplicado.
     // Solo se flaggea contents-vs-contents.

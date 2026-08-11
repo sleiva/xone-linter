@@ -1,5 +1,6 @@
 export { XoneProject, type XoneProjectModel } from './project/XoneProject.js';
 export { Validator, type ValidationRule } from './validator/Validator.js';
+export { validateCollFile, type CollFileValidation } from './validator/validateCollFile.js';
 export { ValidationResult, type ValidationIssue, type Severity } from './validator/ValidationResult.js';
 export * from './model/XoneModel.js';
 export * from './model/PropTypes.js';

@@ -297,6 +297,14 @@ export class XoneProject {
     return colls;
   }
 
+  /** Carga UN fichero `.xne` como coll, sin proyecto alrededor. La usa el `validate` de una coll
+   *  suelta (`validateCollFile`): un agente que acaba de escribir un `.xne` no tiene todavía ni
+   *  `app.xml` ni el resto de la app. Devuelve `null` si el fichero no contiene una `<coll>`
+   *  con `name`. */
+  static async loadCollFile(path: string): Promise<XoneColl | null> {
+    return this.loadColl(path);
+  }
+
   private static async loadColl(path: string): Promise<XoneColl | null> {
     const buf = await fs.readFile(path);
     const doc = parseXml(buf).doc;
@@ -433,6 +441,45 @@ export class XoneProject {
       }
     }
 
+    // Hijos directos de <coll> que no ha consumido ninguna rama: candidatos a hallazgo de FORMA
+    // (CollShapeRule). Se recogen aquí, y no en la regla, porque el parser es el único que ve el
+    // XML: lo que descarta, lo anota — igual que `parseErrors`.
+    //
+    // OJO con los tres contraejemplos medidos sobre el corpus (168 nodos <coll> — cuenta que
+    // incluye los que viven bajo <collprops> en los mappings.xne; son 158 si se cuenta en
+    // ficheros de coll), que son la razón de que esto sea una lista blanca y no una lista negra:
+    //   · `<prop>` hijo directo de <coll> es LEGÍTIMO (20 casos; `MyAllXOne/GPSColl` es una coll
+    //     entera así, de sólo datos).
+    //   · `<platform name="iphone" …>` es un hijo válido y NO estructural.
+    //   · `selecteditemx` es `selecteditem` APAGADO con una `x` — la convención de la casa, la
+    //     misma de `xheight`/`xedit-inrow` en atributos. No es una errata.
+    // `field` NO entra en la lista blanca: a nivel coll tiene 0 apariciones en el corpus y la
+    // documentación lo sitúa sólo dentro de un evento (`<onchange><field name="…">`).
+    const collChildAllowlist = new Set<string>([
+      'group', 'prop', 'frame', 'contents', 'connection', 'macro', 'script', 'node',
+      'permissions', 'method', 'include', 'rule', 'asfilter', 'item', 'platform',
+      ...eventNames,
+    ]);
+    const isKnownCollChild = (tag: string): boolean => {
+      if (collChildAllowlist.has(tag)) return true;
+      const sinX = tag.startsWith('x') ? tag.slice(1)
+        : tag.endsWith('x') ? tag.slice(0, -1)
+        : undefined;
+      return sinX !== undefined && collChildAllowlist.has(sinX);
+    };
+    const strayChildren: NonNullable<XoneColl['strayChildren']> = [];
+    for (const key of Object.keys(collNode)) {
+      if (key.startsWith('@_') || key === '#text') continue;
+      if (isKnownCollChild(key)) continue;
+      for (const el of asArray<XoneXmlNode>(collNode[key])) {
+        if (typeof el !== 'object' || el === null) continue;
+        // los nodos custom con <action> ya los recogió el bucle de arriba como `nodes`
+        if (!reservedChildTags.has(key) && asArray<XoneXmlNode>(el.action).length > 0) continue;
+        const elAttrs = getAttributes(el);
+        strayChildren.push({ tag: key, name: elAttrs.name, attributes: elAttrs });
+      }
+    }
+
     return {
       name,
       attributes: attrs,
@@ -443,6 +490,7 @@ export class XoneProject {
       contents,
       connections,
       nodes,
+      strayChildren: strayChildren.length ? strayChildren : undefined,
       location: loc(path),
     };
   }

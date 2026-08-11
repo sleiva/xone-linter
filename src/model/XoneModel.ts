@@ -57,6 +57,12 @@ export interface XoneColl {
   contents: XoneContents[];
   connections: XoneConnection[];
   nodes: XoneNode[];
+  /** Hijos directos de `<coll>` que NO consumió ninguna rama del parser: ni estructurales
+   *  (group/prop/frame/contents), ni eventos, ni nodos custom con `<action>` dentro. Se recogen
+   *  para que `CollShapeRule` pueda reportarlos: sin esto un `<field name="X"/>` hijo de coll
+   *  desaparece antes de llegar al modelo y la coll pasa por buena. Mismo patrón que
+   *  `XoneProjectModel.parseErrors`, que alimenta a `XmlWellFormedRule`. */
+  strayChildren?: Array<{ tag: string; name?: string; attributes: Record<string, string> }>;
   location: SourceLocation;
 }
 

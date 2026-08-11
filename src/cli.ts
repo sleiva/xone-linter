@@ -4,6 +4,7 @@ import { writeFileSync, mkdirSync, readFileSync } from 'node:fs';
 import pc from 'picocolors';
 import { XoneProject } from './project/XoneProject.js';
 import { Validator } from './validator/Validator.js';
+import { validateCollFile } from './validator/validateCollFile.js';
 import { XoneRuntime } from './runtime/XoneRuntime.js';
 import { XoneSimulator } from './XoneSimulator.js';
 import { runSmoke, type SmokeIssue } from './agent/smoke.js';
@@ -22,6 +23,18 @@ async function main(): Promise<void> {
     const pathArg = args.slice(1).find(a => !a.startsWith('-'));
     const projectPath = pathArg ?? process.cwd();
     await validate(projectPath, json);
+    return;
+  }
+
+  if (command === 'validate-coll') {
+    const json = args.includes('--json') || args.includes('-j');
+    const fileArg = args.slice(1).find(a => !a.startsWith('-'));
+    if (!fileArg) {
+      console.error(pc.red('Falta el fichero .xne'));
+      printHelp();
+      process.exit(2);
+    }
+    await validateColl(fileArg, json);
     return;
   }
 
@@ -159,6 +172,39 @@ async function validate(projectPath: string, json: boolean): Promise<void> {
       console.log(`${prefix}${file} ${issue.code}: ${issue.message}`);
     }
     console.log(pc.gray(`\n${result.issues.length} problemas: ${result.errors.length} errores, ${result.warnings.length} warnings`));
+  }
+
+  process.exit(result.hasErrors ? 1 : 0);
+}
+
+async function validateColl(filePath: string, json: boolean): Promise<void> {
+  const resolved = resolve(filePath);
+  const { coll, result, skipped } = await validateCollFile(resolved);
+
+  if (json) {
+    console.log(JSON.stringify({
+      success: !result.hasErrors,
+      file: resolved,
+      coll,
+      summary: {
+        total: result.issues.length,
+        errors: result.errors.length,
+        warnings: result.warnings.length,
+      },
+      issues: result.issues,
+      skipped,
+    }, null, 2));
+  } else {
+    console.log(pc.blue(`Validando la coll de ${resolved}...\n`));
+    for (const issue of result.issues) {
+      const prefix = issue.severity === 'error' ? pc.red('[ERR]')
+        : issue.severity === 'warning' ? pc.yellow('[WARN]')
+        : pc.cyan('[INFO]');
+      console.log(`${prefix} ${issue.code}: ${issue.message}`);
+    }
+    console.log(pc.gray(`\n${result.issues.length} problemas: ${result.errors.length} errores, ${result.warnings.length} warnings`));
+    console.log(pc.gray('\nNO comprobado en modo coll suelta (hace falta el proyecto):'));
+    for (const s of skipped) console.log(pc.gray(`  - ${s}`));
   }
 
   process.exit(result.hasErrors ? 1 : 0);
@@ -360,6 +406,7 @@ function printHelp(): void {
 
 Comandos:
   validate <path> [--json|-j]          Valida un proyecto XOne
+  validate-coll <fichero.xne> [--json|-j]   Valida UNA coll suelta (sin app.xml). Dice que no ha comprobado.
   run <path> --coll X --event Y        Ejecuta un evento XOne
             [--prop Z] [--data '{...}']
             [--db-path <path.db>] [--db-prefix <prefix>]
