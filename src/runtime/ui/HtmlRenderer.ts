@@ -152,6 +152,14 @@ body{font-family:sans-serif;font-size:17px;margin:0;padding:8px;background:#eee}
 .xone-tab--active{font-weight:bold;border-bottom:2px solid #1565C0}
 .xone-grid{list-style:none;margin:0;padding:0;display:flex;flex-wrap:wrap;align-content:flex-start}
 .xone-grid>li{box-sizing:border-box}
+/* #45 — la celda establece base de ancho: la fila del UITableView ocupa el ancho de la tabla
+   (XoneTableContent.mm:2473, RecordCell con rect del ancho del tableView). Sin esto el li
+   se encoge al contenido y el width="100%" del frame de dentro no tiene contra qué resolver.
+   El :not es obligatorio, no cosmético: en .xone-grid--h el flex:0 0 auto resuelve su base
+   por el width, así que un width:100% global pone cada tarjeta del carrusel al ancho del grid
+   (medido: 248.9 → 378.0). El grid con columnas no se ve afectado: sus li ya se estiran a su
+   pista y width:100% sobre una pista vale lo mismo. */
+.xone-grid:not(.xone-grid--h)>li{width:100%}
 .xone-grid--h{flex-wrap:nowrap;overflow-x:auto}
 .xone-grid--h>li{flex:0 0 auto}
 .xone-drawer{position:fixed;top:0;bottom:0;width:80%;max-width:320px;background:#fff;box-shadow:0 0 12px rgba(0,0,0,.3);overflow:auto;z-index:50}
