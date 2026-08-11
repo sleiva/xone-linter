@@ -157,8 +157,13 @@ body{font-family:sans-serif;font-size:17px;margin:0;padding:8px;background:#eee}
    se encoge al contenido y el width="100%" del frame de dentro no tiene contra qué resolver.
    El :not es obligatorio, no cosmético: en .xone-grid--h el flex:0 0 auto resuelve su base
    por el width, así que un width:100% global pone cada tarjeta del carrusel al ancho del grid
-   (medido: 248.9 → 378.0). El grid con columnas no se ve afectado: sus li ya se estiran a su
-   pista y width:100% sobre una pista vale lo mismo. */
+   (medido: 248.9 → 378.0).
+   El grid con columnas (display:grid inline, minmax(0,1fr)) SÍ cae bajo este :not —su ul no
+   lleva --h— pero no se ve afectado: DEDUCCIÓN, no medida de esta regla en sí, porque el
+   justify-items:stretch por defecto de CSS Grid ya estira el li a su pista, y width:100% sobre
+   una pista resuelve contra esa misma pista ⇒ mismo resultado. Confirmado con el único
+   consumidor del corpus, MyAllXOne/Menu (gallery-columns:3): li 125.6 / ul 376.8 = 1/3, IDÉNTICO
+   con y sin esta regla (comparado renderizando la coll con y sin la línea en el <style>). */
 .xone-grid:not(.xone-grid--h)>li{width:100%}
 .xone-grid--h{flex-wrap:nowrap;overflow-x:auto}
 .xone-grid--h>li{flex:0 0 auto}
