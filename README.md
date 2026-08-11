@@ -2,7 +2,8 @@
 
 Validador y simulador ligero de aplicaciones XOne, pensado para agentes autónomos
 que generan o modifican proyectos XOne sin necesidad de un simulador iOS. Publica
-el binario `xone-simulator` con comandos `validate`, `smoke`, `run` y `render`.
+el binario `xone-simulator` con comandos `validate`, `validate-coll`, `smoke`, `run`
+y `render`.
 
 ## Alcance actual
 
@@ -10,7 +11,12 @@ el binario `xone-simulator` con comandos `validate`, `smoke`, `run` y `render`.
 
 - XML bien formado y encoding correcto (`iso-8859-15` en `.xne`).
 - Atributos obligatorios (`progid`, `name`, `type`, `id`, ...).
-- Unicidad de nombres dentro de una colección.
+- Unicidad de nombres dentro de una colección, y del `id` de cada `<group>` (dos
+  `<group id="1">` en la misma coll dan comportamiento indefinido en el device).
+- Forma de la `<coll>`: columnas declaradas con `<field>` en vez de `<prop>` —el error
+  típico de un generador que trae el DSL de otra plataforma—, hijos de `<coll>`,
+  `<group>` o `<frame>` fuera de la gramática, y colls que declaran columnas sin ningún
+  `<group>`. El mensaje del hallazgo trae la forma corregida del nodo.
 - Tipos de propiedad válidos.
 - `progid` correcto.
 - Ficheros incluidos y estilos existen.
@@ -69,6 +75,9 @@ npm run validate -- /Users/projects/project2026/xone_app/AITest
 # Salida JSON para consumo automatizado por agentes
 node ./dist/cli.js validate /Users/projects/project2026/xone_app/AITest --json
 
+# Validar UNA coll suelta, sin app.xml ni proyecto alrededor
+node ./dist/cli.js validate-coll /ruta/a/Proveedores.xne
+
 # Ejecutar un evento XOne (headless)
 node ./dist/cli.js run /Users/projects/project2026/xone_app/AITest \
   --coll EntradaApp --event before-edit
@@ -87,6 +96,22 @@ node ./dist/cli.js run /ruta/a/tu/app/XOne \
 # Smoke-run de la app completa (todas las colls, lifecycle) — salida JSON para agentes
 node ./dist/cli.js smoke /Users/projects/project2026/xone_app/AITest --json
 ```
+
+### Validar una coll suelta — `validate-coll`
+
+Para un agente que **acaba de escribir un `.xne`** y todavía no tiene el proyecto
+montado: `validate` exige un directorio con `app.xml`, y esto toma el fichero.
+
+```bash
+node ./dist/cli.js validate-coll /ruta/a/Proveedores.xne
+node ./dist/cli.js validate-coll /ruta/a/Proveedores.xne --json   # incluye `skipped`
+```
+
+Corre sólo las reglas que pueden juzgar una coll aislada, y **declara siempre lo que no
+ha comprobado** — referencias a otras colls (`mapcol`, `contents`), handlers en ficheros
+`.js`, `<include>`/`include-layout`, el `entry-point` de la app y la sintaxis de los
+`<script>`. Un verde aquí mide menos que un verde de `validate`, y la salida lo dice en
+vez de dejarlo suponer. Sale con código 1 si hay errores.
 
 ### Smoke-run de app completa
 
