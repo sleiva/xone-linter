@@ -58,7 +58,7 @@ export function cellWidthCss(raw: string | undefined, scaleW: number): string | 
   if (raw == null) return undefined;
   const s = String(raw).trim();
   if (s === '') return undefined;
-  const pct = s.match(/^(\d+(?:\.\d+)?)\s*%$/);
+  const pct = s.match(/^(\d+(?:\.\d+)?)%$/);
   if (pct) return parseFloat(pct[1]) > 0 ? `${parseFloat(pct[1])}%` : undefined;
   const css = xoneLengthToCss(s, scaleW);
   if (css === undefined || !css.endsWith('px')) return undefined;   // filtra los centinelas
