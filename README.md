@@ -125,13 +125,13 @@ informe con su **fase** y **stack truncado**.
 
 ```bash
 # Resumen coloreado (totals + colls fallidas + primeros 3 errores por coll, con fase)
-node ./dist/cli.js smoke /Users/projects/project2026/xone_app/AliviaApp
+node ./dist/cli.js smoke /Users/projects/project2026/xone_app/XoneApp
 
 # JSON completo (SmokeReport), para consumo automatizado por agentes
-node ./dist/cli.js smoke /Users/projects/project2026/xone_app/AliviaApp --json
+node ./dist/cli.js smoke /Users/projects/project2026/xone_app/XoneApp --json
 
 # Solo una coll, con interacción (tapea onclick/method)
-node ./dist/cli.js smoke /Users/projects/project2026/xone_app/AliviaApp --interact --coll Home --max-taps 5
+node ./dist/cli.js smoke /Users/projects/project2026/xone_app/XoneApp --interact --coll Home --max-taps 5
 ```
 
 Exit code **1** si `failures.length > 0` (encadenable en CI/hooks de agente). Entorno
@@ -339,7 +339,7 @@ src/
   `style="height:{max%}"` con cada hijo re-escalado a `{hijo/max*100}%`; los hijos fijos
   del coll ganan `flex-shrink:0` y el estilo inline del coll gana `overflow:hidden`
   (clipping como el device). Verificado con `getBoundingClientRect` que la cadena `%`
-  fila/frame resuelve al píxel correcto de punta a punta; el onboarding de AliviaApp
+  fila/frame resuelve al píxel correcto de punta a punta; el onboarding de XoneApp
   mejora (textarea/botón con dimensiones reales) pero sigue sin mostrar la foto de fondo
   ni el bloque superior por **G2-ter** (nuevo, causa distinta: `margin-top:%` se resuelve
   por spec CSS contra el ancho del contenedor, no la altura, y el `<img>` de fondo declara
@@ -350,7 +350,7 @@ src/
   contra el árbol real de la app (cierra **G8**: `imageIndex` basename→ruta indexado en
   `XoneProject.load`, `resolveImg` roscado por `imgbk`/IMG·PH `path`/valor/botón `img`, orden
   determinista ante basenames duplicados entre carpetas — p. ej. `basicos.png` en
-  `files/`/`icons/` de MyAllXOne). Evidencia: AliviaApp gana la foto del onboarding
+  `files/`/`icons/` de XoneApp). Evidencia: XoneApp gana la foto del onboarding
   (`sliderImg1.png`/`slide1.png`, vía `<img src>`); LoginColl gana las sombras bajo
   cards/inputs/logo Y el fondo fotográfico: el hallazgo de las comillas (`url("…")` anidaba
   dobles dentro de `style="…"` y el navegador truncaba el atributo entero, bug latente
@@ -362,7 +362,7 @@ src/
   IMG/PH con `scale-type="center_crop"|"fit_xy"` sin `height` real activo ganan
   `object-fit:cover|fill` + wrapper `height:100%` (gate endurecido vía `xoneLengthToCss`:
   `height="-1"`/inválido cuentan como inactivo) — cierra la causa **(b)**. Evidencia
-  `ts9-AliviaApp-EntradaApp.png` (comparada contra `ios-AliviaApp-EntradaApp.png`): la
+  `ts9-XoneApp-EntradaApp.png` (comparada contra `ios-XoneApp-EntradaApp.png`): la
   paginación y el botón "Saltar" ya viven en la franja superior como el device (antes
   desplazados ~321px fuera del viewport) y la foto de fondo es full-bleed recortada por
   aspecto en vez de colapsar a su tamaño intrínseco — el objetivo visual central de **G2**
@@ -379,20 +379,20 @@ src/
   real y cualquier otro método → stub (antes `TypeError`); `self.getContents(name).count()`
   resuelve el `<contents>` real (antes coll vacía); `DataCollection.setVariables/getVariables`
   (plural, firma real de las apps) y `self.ownerCollection`/`self.getVariables` como
-  miembros reales del dataobject (patrón `LoginColl`). Smoke de regresión: AliviaApp 12→11
-  y MyAllXOne 6→1 failures (colls recuperadas por `user`/singleton/autostub-de-vista/
+  miembros reales del dataobject (patrón `LoginColl`). Smoke de regresión: XoneApp 12→11
+  y XoneApp 6→1 failures (colls recuperadas por `user`/singleton/autostub-de-vista/
   `getContents.count`/`ownerCollection` — ver `docs/roadmap/2026-06-13-estado-general.md`
   fase 53 para el detalle por coll). Extensión del mismo corte: `EventExecutor` expone
   constructores creables `new X()` (`FileManager`, `GpsTools`, `SqlManager`, `WifiManager`,
   `Animation`, `Worker`, `Socket`/`WebSocket`, etc. — doc §5) delegando en la factory
-  `createObject` ya existente — cierra el residuo: el titular de AliviaApp ("Recupera el
+  `createObject` ya existente — cierra el residuo: el titular de XoneApp ("Recupera el
   control de tu vida financiera") **SE VE** ya en el render (antes `new FileManager()` sin
-  exponer abortaba el `<create>` antes de asignarlo); AliviaApp 11→10 failures (`EntradaApp`
+  exponer abortaba el `<create>` antes de asignarlo); XoneApp 11→10 failures (`EntradaApp`
   recuperada). Fix del residuo: `createObject` (`src/runtime/objects/createObject.ts`) ahora
   envuelve TODO objeto que construye con `withAutoStub` (incluida la instancia con estado de
-  `FileManager`) en vez de devolver literales crudos — `MenuWifiManager.xne` (MyAllXOne) hace
+  `FileManager`) en vez de devolver literales crudos — `MenuWifiManager.xne` (XoneApp) hace
   `createObject("WifiManager").isWifiAdapterEnabled()`, método ausente del literal
-  `{connect,disconnect}` que antes lanzaba `TypeError`; **MyAllXOne 1→0 failures (98/98)**.
+  `{connect,disconnect}` que antes lanzaba `TypeError`; **XoneApp 1→0 failures (98/98)**.
 - **54** — F11: máquina JS persistente **por app** en vez de sandbox nuevo por evento. `VmSession`
   en `VmAdapter`/`NodeVmAdapter` (`createSession` + `execute({wrap})` + `dispose`, sobre
   `node:vm` `runInContext`): los includes de `app.xml` (orden real vía `orderedJsFiles`) se
@@ -408,7 +408,7 @@ src/
   abortaría el arranque entero; aquí se prioriza que el resto de la app siga explorable por el
   agente). El smoke (`sim.smoke()`/CLI `smoke`) procesa el **entry-point primero** (boot fiel al
   device: su `<create>` corre `startApp()`/equivalente y fija el estado global de sesión antes de
-  que el resto de colls lo necesite). Resultado: **AliviaApp 34/44 → 44/44** en el smoke — las 10
+  que el resto de colls lo necesite). Resultado: **XoneApp 34/44 → 44/44** en el smoke — las 10
   colls que fallaban leían `apponlineconfig`/`.url` (`online.js`/`authFunctions.js`), estado que
   antes de F11 no sobrevivía entre `runEvent`/`prepareView` distintos del mismo runtime y que
   ahora `startApp()` (disparado por el `<create>` de `EntradaApp`, que corre primero gracias al
@@ -429,12 +429,12 @@ src/
   `parentPx` trazado (el mismo de F9), cada hijo `%` se convierte a **px absoluto**
   (`resolveHeightPx(pct, parentPx, scale)`) y la fila pasa a **auto** (sin `height` propio),
   dejando que el motor de caja mida el máximo real; sin `parentPx`, fallback F7 intacto
-  byte-a-byte. Evidencia `ts12-AliviaApp-EntradaApp.png` (overlay `getBoundingClientRect`
+  byte-a-byte. Evidencia `ts12-XoneApp-EntradaApp.png` (overlay `getBoundingClientRect`
   ad-hoc): la fila "Saltar" mide `47px` (máximo real entre botón `39+8margin=47` e imagen
   `5.95+8margin=13.95`) — gate cumplido: `47px ≥ 5.95px` (altura de fila ≥ imagen por
   aspecto) y sin solape con el título siguiente (`bottom=127.95px ≤ top=567.86px`). Las
-  otras 3 apps regeneradas (`ts12-{FontIconsApp,AITest,MyAllXOne}-*.png`, lección F6/F7 de
-  no saltarse ninguna): `AITest`/`MyAllXOne` byte-idénticas a la evidencia previa;
+  otras 3 apps regeneradas (`ts12-{FontIconsApp,AITest,XoneApp}-*.png`, lección F6/F7 de
+  no saltarse ninguna): `AITest`/`XoneApp` byte-idénticas a la evidencia previa;
   `FontIconsApp` con los tiles en la MISMA altura (`126px`). Hallazgo colateral honesto, NO
   bloqueante (candidato a un corte futuro, ver catálogo): el mismo fix hace que la fila-auto
   de FontIconsApp incluya el `margin-top` de sus hijos en la altura total apilada, lo
