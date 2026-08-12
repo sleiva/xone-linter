@@ -170,6 +170,18 @@ body{font-family:sans-serif;font-size:17px;margin:0;padding:8px;background:#eee}
 .xone-grid--h{flex-wrap:nowrap;overflow-x:auto}
 .xone-grid--h>li{flex:0 0 auto}
 .xone-grid--h>li{width:var(--xone-cell-w,auto)}
+/* #47 — dentro de una celda de contents la celda y sus props recortan en su caja: la celda
+   en XoneRecord.mm:9814 (incondicional, en buildExtraViewsV2) y el prop en :9786.
+   Acotado con selector de descendiente A PROPOSITO: fuera de la celda el oraculo dice lo
+   contrario — el unico clipsToBounds de EditPropertyControl.mm es un NO (:968-975) y
+   EditFrameControl.mm tiene seis ramas condicionales, asi que una regla global seria infiel
+   en la mayoria del corpus.
+   El FRAME de la celda tambien recorta en el oraculo (:8248-8259, salvo elevation), pero su
+   regla salio a un corte propio: medida, mueve la geometria en Program (colapso de margen
+   impedido) y en Campus (minimo automatico de item flex), y hay que decidir en device cual de
+   las dos alturas es la buena antes de fijarla. */
+.xone-grid>li{overflow:hidden}
+.xone-grid>li .xone-prop{overflow:hidden}
 .xone-drawer{position:fixed;top:0;bottom:0;width:80%;max-width:320px;background:#fff;box-shadow:0 0 12px rgba(0,0,0,.3);overflow:auto;z-index:50}
 .xone-drawer[data-drawer-orientation="right"]{right:0}
 .xone-drawer[data-drawer-orientation="left"]{left:0}
