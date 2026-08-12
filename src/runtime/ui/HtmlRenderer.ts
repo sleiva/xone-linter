@@ -173,9 +173,11 @@ body{font-family:sans-serif;font-size:17px;margin:0;padding:8px;background:#eee}
 /* #47 — dentro de una celda de contents la celda y sus props recortan en su caja: la celda
    en XoneRecord.mm:9814 (incondicional, en buildExtraViewsV2) y el prop en :9786.
    Acotado con selector de descendiente A PROPOSITO: fuera de la celda el oraculo dice lo
-   contrario — el unico clipsToBounds de EditPropertyControl.mm es un NO (:968-975) y
-   EditFrameControl.mm tiene seis ramas condicionales, asi que una regla global seria infiel
-   en la mayoria del corpus.
+   contrario — el unico self.clipsToBounds DEL CONTROL en EditPropertyControl.mm es un NO
+   (:972). Las otras dos ocurrencias del fichero (:951 uiLabelField.layer.masksToBounds=YES,
+   :1791 uiLabelField.clipsToBounds=NO) son sobre la SUBVISTA de la etiqueta, no sobre el
+   control, asi que no contradicen la lectura. EditFrameControl.mm tiene seis ramas
+   condicionales, asi que una regla global seria infiel en la mayoria del corpus.
    El FRAME de la celda tambien recorta en el oraculo (:8248-8259, salvo elevation), pero su
    regla salio a un corte propio: medida, mueve la geometria en Program (colapso de margen
    impedido) y en Campus (minimo automatico de item flex), y hay que decidir en device cual de
