@@ -178,12 +178,19 @@ body{font-family:sans-serif;font-size:17px;margin:0;padding:8px;background:#eee}
    :1791 uiLabelField.clipsToBounds=NO) son sobre la SUBVISTA de la etiqueta, no sobre el
    control, asi que no contradicen la lectura. EditFrameControl.mm tiene seis ramas
    condicionales, asi que una regla global seria infiel en la mayoria del corpus.
-   El FRAME de la celda tambien recorta en el oraculo (:8248-8259, salvo elevation), pero su
-   regla salio a un corte propio: medida, mueve la geometria en Program (colapso de margen
-   impedido) y en Campus (minimo automatico de item flex), y hay que decidir en device cual de
-   las dos alturas es la buena antes de fijarla. */
+   El FRAME de la celda tambien recorta (:8248-8249), salvo que declare elevation no vacio y
+   distinto de "0" (:8251-8255, excepcion que emite inline() como overflow:visible). Corte #49.
+   El mecanismo es overflow:clip y NO hidden, y la diferencia se midio sobre las 168 colls:
+   hidden crea contexto de formato y anula el minimo automatico del item flex, asi que movia 8
+   cifras del corpus (Program +17.1 en 2 celdas y 4 frames, Campus -17.1 en 2 frames)
+   ENCOGIENDO al hijo hasta caber en vez de recortarlo, y clipsToBounds no redimensiona nada.
+   clip-path:inset(0) tampoco mueve geometria, pero hace DESAPARECER dos frames
+   position:absolute de Campus que hoy se pintan por encima de su contenedor del DOM, porque no
+   respeta que un absoluto escapa al recorte de un ancestro que no es su bloque contenedor.
+   clip mueve 0 cifras y recorta. */
 .xone-grid>li{overflow:hidden}
 .xone-grid>li .xone-prop{overflow:hidden}
+.xone-grid>li .xone-frame{overflow:clip}
 .xone-drawer{position:fixed;top:0;bottom:0;width:80%;max-width:320px;background:#fff;box-shadow:0 0 12px rgba(0,0,0,.3);overflow:auto;z-index:50}
 .xone-drawer[data-drawer-orientation="right"]{right:0}
 .xone-drawer[data-drawer-orientation="left"]{left:0}
@@ -1308,6 +1315,15 @@ function inline(
   // `styleMap.ts:226`) sin tocar `alignToCss`, que es compartida con los props — donde emitir
   // `text-align` es justamente lo fiel.
   if (container) delete decls['text-align'];
+  // Corte #49: el frame de una celda recorta, salvo que declare `elevation`. La excepción se emite
+  // INLINE porque así vence a la regla de `BASE_CSS`; fuera de una celda es inocua, porque
+  // `visible` ya es el valor inicial.
+  //
+  // Va aquí y bajo `container`, NO en `styleMap`: `styleDeclsFromAttributes` es compartida con los
+  // props, y un prop con `elevation` recibiría `overflow:visible` y anularía en silencio el recorte
+  // de prop del #47 (`.xone-grid>li .xone-prop{overflow:hidden}`). El oráculo pone la excepción en
+  // el FRAME, no en el prop.
+  if (container && esExcepcionElevation(attrs)) decls['overflow'] = 'visible';
   if (overrides) Object.assign(decls, overrides);
   const s = declsToInline(decls);
   return s ? ` style="${s}"` : '';
@@ -1333,6 +1349,16 @@ function fontFaceCss(faces: Record<string, string> | undefined): string {
     out.push(`@font-face{font-family:'${fam}';src:url('${url}')format('${fmt}')}`);
   }
   return out.length ? out.join('\n') + '\n' : '';
+}
+
+/** Excepción de recorte del oráculo (`XoneRecord.mm:8251`): `elevation` presente, distinto de `""`
+ *  y distinto de `"0"`. Es un test de CADENA, no numérico, y sin recortar espacios — igual que los
+ *  `isEqualToString:` de la fuente. Un `elevation="abc"` apaga el recorte en el oráculo
+ *  (`floatValue` da 0, pero la cadena no es vacía ni "0") aunque `styleMap` no emita `box-shadow`;
+ *  0 consumidores de esa divergencia en el corpus, donde los 9 valores son enteros positivos. */
+function esExcepcionElevation(attrs: Record<string, string>): boolean {
+  const e = attrs.elevation;
+  return e !== undefined && e !== '' && e !== '0';
 }
 
 /** `true` estricto (minúsculas), como los `CompareStrings("true", …)` del oráculo. */
