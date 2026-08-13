@@ -1295,6 +1295,19 @@ function inline(
       decls['align-items'] = f;
     }
   }
+  // El `align` de un CONTENEDOR coloca las CAJAS de sus hijos, no sus glifos (corte #48). El
+  // oráculo saca el `textAlignment` de una etiqueta del `align` DEL PROPIO prop —default
+  // izquierda, centro para `T_BUTTON` (`EditPropertyControl.mm:733-753`)— y el del contenedor
+  // sólo fija `hAlignment`/`vAlignment`, que es alineación de CONTENIDO
+  // (`EditFrameControl.mm:1805-1823`). En CSS, en cambio, `text-align` SE HEREDA, así que
+  // emitirlo aquí centraba el texto de descendientes que el device deja a la izquierda.
+  //
+  // Se retira DESPUÉS de la conversión de arriba, que lo lee para producir el `align-items`: el
+  // orden no es cosmético. Y se retira la DECLARACIÓN, no el cálculo, así que cubre los dos
+  // caminos que la producen (`align` vía `alignToCss` y el atributo `text-align` de
+  // `styleMap.ts:226`) sin tocar `alignToCss`, que es compartida con los props — donde emitir
+  // `text-align` es justamente lo fiel.
+  if (container) delete decls['text-align'];
   if (overrides) Object.assign(decls, overrides);
   const s = declsToInline(decls);
   return s ? ` style="${s}"` : '';
