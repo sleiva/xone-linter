@@ -318,9 +318,10 @@ function renderGroup(
   g: UIGroup, resolve: Resolve, scale: Scale, parentPx: number | undefined, tab?: string, active?: boolean, resolveImg?: ResolveImg,
 ): string {
   if (!g.visible) return '';
-  // Contexto de posición para frames flotantes descendientes (position:absolute → relativo
-  // a este grupo). Inocuo para el flujo normal; gate para no tocar grupos sin flotantes.
-  const posOv = hasFloatingFrame(g.frames) ? { position: 'relative' } : undefined;
+  // Contexto de posición para descendientes flotantes —frames y props (corte #50)—:
+  // `position:absolute` relativo a este grupo. Inocuo para el flujo normal; gate para no tocar
+  // grupos sin flotantes.
+  const posOv = hasFloating(g.frames, g.controls) ? { position: 'relative' } : undefined;
   const style = inline(g.attributes, scale, true, posOv, resolveImg);
   const cls = classAttr('xone-group', g.attributes);
   const children = renderChildren(g.childOrder, g.frames, g.controls, resolve, scale, parentPx, resolveImg, rowJustifyFor(g.attributes), rowAlignFor(g.attributes));
@@ -362,10 +363,15 @@ function floatingOverride(attrs: Record<string, string>, scale: Scale): Record<s
   };
 }
 
-/** ¿Algún frame del subárbol es floating? El grupo que lo contiene necesita position:relative
- *  para ser el contexto de posición del overlay. */
-function hasFloatingFrame(frames: UIFrame[]): boolean {
-  return frames.some(f => f.attributes.floating === 'true' || hasFloatingFrame(f.frames));
+/** ¿Algún frame o control del subárbol es floating? El grupo que lo contiene necesita
+ *  `position:relative` para ser el contexto de posición del overlay.
+ *
+ *  Mira también los CONTROLES (corte #50): en `AliviaApp/Home` el único elemento flotante es un
+ *  prop, así que mirando sólo frames el grupo se quedaba sin `position:relative` y el absoluto
+ *  anclaba al ancestro posicionado más cercano en vez de al grupo. */
+function hasFloating(frames: UIFrame[], controls: UIControl[] = []): boolean {
+  if (controls.some(c => c.attributes.floating === 'true')) return true;
+  return frames.some(f => f.attributes.floating === 'true' || hasFloating(f.frames, f.controls));
 }
 
 function renderFrame(
@@ -730,6 +736,18 @@ function renderControl(
   let mergedOv = overrides;
   if (marginOv) mergedOv = { ...mergedOv, ...marginOv };
   if (fillOv) mergedOv = { ...mergedOv, ...fillOv };
+  // Corte #50: un prop con `floating="true"` sale del flujo igual que un frame flotante. El oráculo
+  // lo marca en `EditPropertyControl.mm:710` y le da `zIndexPos = 200` (`:713-715`); la fórmula de
+  // `left`/`top` es la misma que la de los frames (`EditFrameControl.mm:6750-6754` y `:6788-6792`):
+  // con `%` contra el tamaño del padre, sin `%` en puntos por el factor del eje — que es justo lo
+  // que hace `xoneLengthToCss`, así que no hay lógica de unidades nueva.
+  //
+  // Antes de este corte el prop se quedaba en el FLUJO, al final del contenido: el botón de chat de
+  // AliviaApp aterrizaba en x=1, y=826 (117.6²) en 8 pantallas, tres píxeles por debajo del pliegue
+  // de 823, en vez de flotar en el 73%/74%. No estaba recortado —el viewport tiene `overflow:auto`
+  // y el contenido mide 2192— sino en el sitio equivocado.
+  const floatOv = floatingOverride(c.attributes, scale);
+  if (floatOv) mergedOv = { ...mergedOv, ...floatOv, 'z-index': '200' };
   // Botón con imagen Y bgcolor → sin fondo (fiel a EditButtonProperty.mm:373: imgatt==NULL
   // gate; el bloque que pinta cbgColor solo corre si el botón NO tiene imagen). Overridea el
   // bgcolor materializado (p. ej. #cccccc del prop:B classless, o bgcolor explícito). Un botón
