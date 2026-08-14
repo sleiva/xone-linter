@@ -1,6 +1,6 @@
 {
   "name": "xone-linter",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "description": "Simulador y validador ligero de apps XOne para agentes autónomos",
   "type": "module",
   "main": "./dist/index.js",
