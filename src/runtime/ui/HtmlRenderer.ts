@@ -458,6 +458,58 @@ function orderedChildren(
   return out;
 }
 
+/** Los elementos `floating="true"` de una plantilla de contents NO existen cuando esa plantilla se
+ *  renderiza como CELDA (corte #51).
+ *
+ *  No es una cita de fuente sino comportamiento medido, y la diferencia importa: el oráculo TIENE
+ *  atajo para el frame flotante de una celda (`XoneRecord.mm:8895-8900`, `addSubview` + `return`) y
+ *  lo coloca en `:8071-8075`, así que leer la fuente sola apuntaba al corte contrario —replicar ese
+ *  anclaje y su unidad— y habría sido infiel: **ese camino no se recorre nunca** para los flotantes
+ *  de una plantilla. Instrumentando `addProp:` llegan 138 vistas de celda y ninguna con `floating`,
+ *  mientras los once hijos normales de `CampusContent` sí llegan. El device concuerda: dentro de la
+ *  tarjeta no hay ni botón de volver (`iconsFrm`) ni barra gris (`frmFloatingMenu`).
+ *
+ *  Filtra los arrays **y reconstruye `childOrder` a la vez**: son índices posicionales que
+ *  `orderedChildren` consume en paralelo, así que quitar de `frames`/`controls` sin rehacer el orden
+ *  descolocaría a los hermanos que quedan.
+ *
+ *  Devuelve el grupo TAL CUAL cuando no hay nada que filtrar —164 de las 168 colls—, así el corte no
+ *  puede alterar lo que no toca. */
+const flota = (a: Record<string, string>): boolean => a.floating === 'true';
+
+/** ¿Hay algún flotante en el subárbol? Se pregunta ANTES de copiar nada, para poder devolver los
+ *  arrays originales tal cual en las 164 colls que no tienen ninguno. */
+function hayFlotante(frames: UIFrame[], controls: UIControl[]): boolean {
+  return controls.some(c => flota(c.attributes))
+    || frames.some(f => flota(f.attributes) || hayFlotante(f.frames, f.controls));
+}
+
+function sinFlotantes(
+  childOrder: ('frame' | 'control')[] | undefined, frames: UIFrame[], controls: UIControl[],
+): { childOrder: ('frame' | 'control')[] | undefined; frames: UIFrame[]; controls: UIControl[] } {
+  if (!hayFlotante(frames, controls)) return { childOrder, frames, controls };
+  const orden: ('frame' | 'control')[] = [];
+  const fs: UIFrame[] = [];
+  const cs: UIControl[] = [];
+  for (const it of orderedChildren(childOrder, frames, controls)) {
+    if (it.kind === 'frame') {
+      if (flota(it.f.attributes)) continue;
+      // RECURSIVO, y no por elegancia: `iconsFrm` de `CampusContent` cuelga de
+      // `externalFrame > internalParentFrame`, así que un filtro de un solo nivel lo dejaba pasar.
+      // Los 4 tests y el criterio del snapshot («sólo eliminaciones») daban verde con 2 de los 4
+      // casos vivos; lo cazó comparar el recuento con la población medida por `probe_geom`.
+      const sub = sinFlotantes(it.f.childOrder, it.f.frames, it.f.controls);
+      const igual = sub.frames === it.f.frames && sub.controls === it.f.controls;
+      orden.push('frame');
+      fs.push(igual ? it.f : { ...it.f, childOrder: sub.childOrder, frames: sub.frames, controls: sub.controls });
+    } else {
+      if (flota(it.c.attributes)) continue;
+      orden.push('control'); cs.push(it.c);
+    }
+  }
+  return { childOrder: orden, frames: fs, controls: cs };
+}
+
 function renderChildren(
   childOrder: ('frame' | 'control')[] | undefined, frames: UIFrame[], controls: UIControl[], resolve: Resolve, scale: Scale,
   parentPx: number | undefined, resolveImg?: ResolveImg, rowJustify?: string, rowAlign?: string,
@@ -1227,7 +1279,14 @@ function renderControl(
         };
         const items = c.listRows
           .map((row, i) => `<li${cellBg(i)}>${row.groups
-            .map(g => renderChildren(g.childOrder, g.frames, g.controls, resolve, scale, cellPx, resolveImg, rowJustifyFor(g.attributes), rowAlignFor(g.attributes)))
+            .map(g => {
+              // corte #51: la celda no monta los flotantes de la plantilla. `rowJustifyFor`/
+              // `rowAlignFor` siguen leyendo `g.attributes` — el align del grupo no cambia, sólo
+              // se filtran sus hijos.
+              const s = sinFlotantes(g.childOrder, g.frames, g.controls);
+              return renderChildren(s.childOrder, s.frames, s.controls, resolve, scale, cellPx, resolveImg,
+                rowJustifyFor(g.attributes), rowAlignFor(g.attributes));
+            })
             .join('')}</li>`)
           .join('');
         return wrap(`${label}${ul(items)}`);
