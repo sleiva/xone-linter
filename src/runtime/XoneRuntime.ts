@@ -566,9 +566,19 @@ export class XoneRuntime {
     return view ? renderViewText(view) : '(sin vista)';
   }
 
+  /** Marca que distingue una página de ERROR de un render bueno **sin leer prosa**.
+   *
+   *  Existe porque el consumidor de `render` es un proceso, no una persona: hasta ahora la
+   *  única señal era el `<title>error</title>` y el texto del mensaje, así que quien rasteriza
+   *  el HTML sacaba un PNG perfectamente válido de la frase «coll X no encontrada» y lo daba
+   *  por bueno. Un `meta` no cambia lo que ve quien abre el fichero y le da a `cli.ts` algo
+   *  estable con lo que decidir el código de salida — comparar por redacción es justo lo que
+   *  se rompe al traducir el mensaje. */
+  static readonly ERROR_MARKER = '<meta name="xone-render-error"';
+
   private errorHtml(title: string, message: string): string {
     const e = (s: string) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-    return `<!doctype html><html><head><meta charset="utf-8"><title>${e(title)}</title></head><body><p>${e(message)}</p></body></html>`;
+    return `<!doctype html><html><head><meta charset="utf-8">${XoneRuntime.ERROR_MARKER} content="${e(message)}"><title>${e(title)}</title></head><body><p>${e(message)}</p></body></html>`;
   }
 
   /** Render HTML de la vista actual o de la coll indicada (para juicio de diseño del LLM). */

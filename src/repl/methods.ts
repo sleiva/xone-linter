@@ -12,6 +12,21 @@ export interface MethodContext {
 
 export type MethodHandler = (params: Record<string, unknown>, ctx: MethodContext) => Promise<unknown>;
 
+/** El mensaje de la página de error de `renderHtml`, o `null` si el render fue bueno.
+ *
+ *  Se reconoce por la MARCA (`XoneRuntime.ERROR_MARKER`) y no por el `<title>error</title>`
+ *  ni por el texto: comparar por redacción es lo que se rompe el día que un mensaje cambie de
+ *  palabras o se traduzca, y esta señal decide si un proceso rasteriza o se detiene.
+ */
+function mensajeDeError(html: string): string | null {
+  if (!html.includes(XoneRuntime.ERROR_MARKER)) return null;
+  const m = /<meta name="xone-render-error" content="([^"]*)">/.exec(html);
+  // Con la marca puesta y el `content` ilegible, se devuelve una cadena NO VACÍA: el llamador
+  // decide con «¿hay error?», y un `""` se lee como falso y le haría seguir adelante.
+  return m ? m[1].replace(/&quot;/g, '"').replace(/&gt;/g, '>').replace(/&lt;/g, '<').replace(/&amp;/g, '&')
+           : 'el render devolvió una página de error';
+}
+
 function str(params: Record<string, unknown>, key: string): string {
   const v = params[key];
   if (typeof v !== 'string' || v.length === 0) {
@@ -115,8 +130,16 @@ export const methods: Record<string, MethodHandler> = {
     const buf = Buffer.from(html, 'utf8');
     const bytes = buf.length;
     const truncated = bytes > maxBytes;
+    // **`error` distingue la página de ERROR de un render bueno, y hacía falta AQUÍ más que en
+    // el CLI**: el consumidor del REPL es un proceso que rasteriza lo que le devuelvan, así que
+    // sin este campo saca un PNG impecable del mensaje «coll X no encontrada» y lo manda a
+    // juzgar como si fuese la pantalla. Se sigue devolviendo el `html` —quien lo mire quiere
+    // leer qué pasó— y lo que se añade es la señal, que es lo que no había.
+    // **`null` y no ausente**: un cliente viejo lo ignora igual, y uno nuevo puede distinguir
+    // «este render fue bien» de «este linter es viejo y no sabe contestar a la pregunta».
+    const error = mensajeDeError(html);
     return {
-      coll: coll ?? null, flow, bytes, truncated,
+      coll: coll ?? null, flow, bytes, truncated, error,
       html: truncated ? buf.subarray(0, maxBytes).toString('utf8').replace(/�+$/, '') : html,
       log: serializeLog(runtime.log.all),
     };

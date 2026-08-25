@@ -391,14 +391,26 @@ async function renderCmd(projectPath: string, collName?: string, flow = true, db
   const runtime = new XoneRuntime(project.model, undefined, { network: 'mock', dbPath, prefix: dbPrefix });
   const sesion = leerSesion(sessionPath);
   if (sesion) runtime.appData.loadSession(sesion);
+  let fallo = false;
   try {
     const entry = project.model.app.entryPoints[0];
     const target = collName ?? entry;
-    process.stdout.write(runtime.renderHtml(target, { flow, group, activeColor }));
+    const html = runtime.renderHtml(target, { flow, group, activeColor });
+    // **El HTML de error se SIGUE emitiendo, y aun así el código de salida es !=0.** Las dos
+    // cosas a la vez: quien mire el fichero quiere leer qué pasó, y quien lo consuma desde un
+    // script necesita poder distinguirlo sin parsear prosa. Hasta aquí este comando devolvía
+    // 0 también cuando la coll no existía, así que un rasterizador sacaba un PNG impecable
+    // del mensaje de error y lo publicaba como si fuese la pantalla.
+    fallo = html.includes(XoneRuntime.ERROR_MARKER);
+    process.stdout.write(html);
     process.stdout.write('\n');
+    if (fallo) console.error(pc.red('render: la coll no se pudo renderizar (ver el HTML emitido)'));
   } finally {
     runtime.close();
   }
+  // Fuera del `finally`: `process.exit` ahí dentro se saltaría el `runtime.close()` de las
+  // demás rutas si alguna vez se añade otra salida.
+  if (fallo) process.exit(2);
 }
 
 function printHelp(): void {
