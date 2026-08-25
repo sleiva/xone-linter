@@ -198,7 +198,12 @@ export class XoneProject {
 
   // Extensiones de imagen que el device resuelve por nombre contra el árbol de la app
   // (p. ej. `imgbk="fondo.png"` vive de verdad en `icons/fondo.png`, resuelto por IconFolder).
-  private static readonly IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp']);
+  // `.svg` va DENTRO, y no es un añadido de adorno: sin él un icono vectorial no entra en el
+  // índice, `pickImagePath` devuelve `undefined` y `resolveImg` cae a `?? n` — o sea que el
+  // `src` sale con el nombre PELADO (`ic_event.svg`) en vez de su ruta (`icons/ic_event.svg`)
+  // y la imagen no carga desde NINGUNA carpeta. Medido en `proyecto_example`, cuyos cuatro
+  // iconos son SVG: el screenshot salía con los cuadros rotos del `alt`.
+  private static readonly IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg']);
 
   /** Ficheros de fuente que la app embarca (`fonts/DMSans-Regular.ttf`…). El render los sirve con
    *  `@font-face` para que el navegador use las métricas REALES del device (corte #33). */

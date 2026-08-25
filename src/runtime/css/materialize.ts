@@ -38,6 +38,42 @@ export function selectorsFor(
   return sels;
 }
 
+/** `\uXXXX` → el carácter. **Es lo que hace visibles las fuentes de iconos.**
+ *
+ *  Las hojas de iconos declaran el glifo como escape (`.ion-heart { title: \uf141; }`,
+ *  `Ionicons.css`), y hasta aquí el valor se copiaba VERBATIM al atributo: el botón salía con
+ *  el texto literal `\uf141` en vez del corazón. Se ve en cuanto se rasteriza la pantalla —
+ *  cinco botones de `FontIconsApp/EntradaApp` pintando `\uf101`, `\uf140`, `\uf141`, `\uf2c1`.
+ *
+ *  **Va aquí y no en el parser de la hoja**, que es la decisión que importa: éste es el punto
+ *  donde el texto del CSS se convierte en el VALOR de un atributo, y un escape se resuelve al
+ *  materializarse, no antes. El CSS que se emite al `<style>` no se toca — ahí el navegador
+ *  ya sabe desescapar lo suyo, y reescribírselo sería decidir dos veces.
+ *
+ *  **Solo la forma `\uXXXX` de cuatro dígitos, que es la que usan estas hojas.** La forma
+ *  canónica de CSS (`\f141`, sin la `u`) NO se toca a propósito: no aparece en los proyectos
+ *  medidos, y tratarla aquí obligaría a decidir qué hacer con el espacio que la termina —
+ *  reglas de escape de CSS que no hacen falta para el caso real y que romperían valores
+ *  legítimos que empiecen por barra invertida.
+ *
+ *  **Se aplica a CUALQUIER atributo que resuelva la hoja, no solo a `title`, y el alcance
+ *  está MEDIDO en vez de supuesto**: en cinco proyectos reales (`FontIconsApp`,
+ *  `proyecto_example`, `MyAllXOne`, `mREDbueno`, `eGIRED_Iberdrola_ATEC_2026`) las **736**
+ *  declaraciones CSS con un `\uXXXX` dentro son `title` y ninguna otra cosa. O sea que el
+ *  atributo que preocuparía —`method`, que lleva JS y donde desescapar antes de tiempo
+ *  cambiaría lo que ejecuta el device— hoy no trae ninguno. No se estrecha a `title` porque
+ *  `caption` es su hermano documentado (el texto del botón cuando no hay `title`) y una lista
+ *  blanca sería una segunda cosa que mantener sincronizada con el renderer.
+ *
+ *  **NO está verificado contra el device.** Lo que lo sostiene es que la app se llama
+ *  `FontIconsApp`, embarca `Ionicons.ttf` y su hoja es la de Ionicons, cuyo único propósito
+ *  es pintar glifos: una pantalla que enseñe los escapes como texto no puede ser lo que el
+ *  device hace. Dicho aquí en vez de dejarlo pasar por medido. */
+export function desescapaUnicode(valor: string): string {
+  if (!valor.includes('\\u')) return valor;
+  return valor.replace(/\\u([0-9a-fA-F]{4})/g, (_, hex: string) => String.fromCharCode(parseInt(hex, 16)));
+}
+
 function materializeNode(
   attrs: Record<string, string>, kind: Kind, propType: string | undefined,
   collClass: string | undefined, sheet: Stylesheet, flags: Flags,
@@ -49,7 +85,7 @@ function materializeNode(
     if (attr in attrs) continue; // XML propio gana
     for (const s of sels) {
       const v = sheet.lookup(s, attr);
-      if (v !== undefined) { attrs[attr] = v; break; } // primer selector (mayor prioridad) que resuelve
+      if (v !== undefined) { attrs[attr] = desescapaUnicode(v); break; } // primer selector (mayor prioridad) que resuelve
     }
   }
 }
