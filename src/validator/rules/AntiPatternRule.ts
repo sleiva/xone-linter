@@ -9,8 +9,11 @@ export class AntiPatternRule implements ValidationRule {
     for (const coll of project.colls) {
       this.checkEvents(coll, result);
       this.checkScripts(coll, result);
-      this.checkIncludes(project, result);
     }
+    // FUERA del bucle de colls: los includes son del PROYECTO, no de cada coll. Dentro, un
+    // `<include language="vbscript">` salía repetido una vez por colección — medido sobre un
+    // proyecto real: 39 ANTIPATTERN_VBSCRIPT que eran un solo include.
+    this.checkIncludes(project, result);
   }
 
   private checkEvents(coll: XoneColl, result: ValidationResult): void {
@@ -37,9 +40,24 @@ export class AntiPatternRule implements ValidationRule {
   }
 
   private checkScripts(coll: XoneColl, result: ValidationResult): void {
-    for (const evt of coll.events) {
+    // Eventos Y NODOS: un nodo (lo que invoca `ExecuteNode(...)`) es la mitad larga del código
+    // de una app XOne, y mirar solo `events` dejaba estos anti-patrones ciegos justo ahí.
+    const contenedores = [...coll.events, ...coll.nodes];
+    for (const evt of contenedores) {
       for (const action of evt.actions) {
-        if (!action.script || action.scriptLanguage.toLowerCase() !== 'javascript') {
+        if (!action.script) continue;
+        // VBScript está descontinuado, y hasta ahora solo se decía de un <include>. Un bloque
+        // `<script language="VBScript">` es el mismo aviso: el código nuevo va en javascript.
+        if (action.scriptLanguage.toLowerCase() === 'vbscript') {
+          result.warning(
+            'ANTIPATTERN_VBSCRIPT',
+            `En "${coll.name}:${evt.name}" hay un <script language="VBScript">. VBScript está descontinuado; usa javascript.`,
+            evt.location.file,
+            evt.location,
+          );
+          continue;
+        }
+        if (action.scriptLanguage.toLowerCase() !== 'javascript') {
           continue;
         }
         const script = action.script;
