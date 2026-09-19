@@ -51,7 +51,7 @@ const SKIPPED = [
   + '(REF_FUNC_MISSING). Y como HandlerReference queda fuera entera, se pierden con ella las '
   + 'referencias a nodos de la PROPIA coll (REF_NODE_MISSING), que sí serían comprobables aquí',
   'sintaxis de los <script> de la coll: JsSyntaxRule queda fuera, así que un error de JavaScript '
-  + 'dentro de la coll no se ve (JS_ASYNC_AWAIT y compañía)',
+  + 'dentro de la coll no se ve (JS_SYNTAX, JS_UNSUPPORTED_SYNTAX)',
   '<include> y ficheros del proyecto: haría falta el árbol de la app',
   'de los anti-patrones, sólo el que lee app.xml: ANTIPATTERN_VBSCRIPT (un <include language="vbscript">). '
   + 'Los otros cinco chequeos de AntiPattern SÍ se ejecutan',
