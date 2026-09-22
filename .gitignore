@@ -16,3 +16,6 @@ __pycache__/
 
 # macOS
 .DS_Store
+
+# Config local de IntelliJ: es de la máquina de cada uno, no del proyecto.
+.idea/
