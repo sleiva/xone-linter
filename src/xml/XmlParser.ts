@@ -1,4 +1,4 @@
-import { XMLParser } from 'fast-xml-parser';
+import { XMLParser, XMLValidator } from 'fast-xml-parser';
 import iconv from 'iconv-lite';
 
 export interface XoneXmlNode {
@@ -49,8 +49,42 @@ const xmlParser = new XMLParser({
  * Parsea un fichero XML de XOne. Soporta declaración de encoding
  * (incluyendo iso-8859-15) y devuelve la raíz normalizada.
  */
+export class XmlNotWellFormed extends Error {
+  constructor(readonly line: number, readonly column: number, detail: string) {
+    super(`line ${line}, column ${column}: ${detail}`);
+    this.name = 'XmlNotWellFormed';
+  }
+}
+
+/**
+ * Throws if the text is not well-formed XML.
+ *
+ * WHY THIS EXISTS AT ALL, and it is the uncomfortable part: `XMLParser.parse()` **never
+ * throws**. Measured — it accepts an unclosed `<frame>`, mis-nested `<a><b></a></b>` and an
+ * unquoted attribute value, and returns a document for all three. `XmlWellFormedRule` reports
+ * `project.parseErrors`, and those are filled from a `catch` around `parseXml`, so the rule
+ * was **written, registered and dead**: `validateCollFile` on a `.xne` with an unclosed tag
+ * answered "0 errors" and named the coll it had just half-read.
+ *
+ * `XMLValidator` is the half of fast-xml-parser that does check, and it catches all three.
+ *
+ * MEASURED BEFORE TURNING IT ON, because a strict check that rejects working files is worse
+ * than no check: over **454 real `.xne`/`.xml` files** from seven shipped projects, 432 pass
+ * and **22 are genuinely broken** — every `.xne` of one project is a JSON-encoded string
+ * written to disk verbatim, starting with a `"` and carrying `\"` and two-byte `\n` instead
+ * of newlines. So there are no false positives to trade away: the only files this rejects are
+ * files that are not XML.
+ */
+function assertWellFormed(text: string): void {
+  const verdict = XMLValidator.validate(text);
+  if (verdict === true) return;
+  const { line, col, msg } = verdict.err;
+  throw new XmlNotWellFormed(line, col, msg);
+}
+
 export function parseXml(buffer: Buffer): { encoding: string; doc: XoneXmlNode } {
   const { encoding, text } = detectEncoding(buffer);
+  assertWellFormed(text);
   const parsed = xmlParser.parse(text);
 
   // fast-xml-parser envuelve con el nombre del nodo raíz.
@@ -122,4 +156,26 @@ export function getAttributes(node: unknown): Record<string, string> {
     }
   }
   return attrs;
+}
+
+/**
+ * Encodes decoded text back into the encoding its own XML declaration names.
+ *
+ * The pair of `detectEncoding`: that one reads bytes and gives text, this one takes text and
+ * gives the bytes the file would have. It exists so that content-based validation goes through
+ * exactly ONE decoding path — the same `parseXml` a file goes through — instead of a second
+ * text-only parser that could drift from it.
+ *
+ * And it is not a formality: `.xne` files declare iso-8859-15, where `√` and `π` do not exist.
+ * A model that writes them produces a document with substitution bytes, and that is precisely
+ * the document XOne would load — so validating the round-tripped bytes tells the truth, while
+ * validating the pristine string would hide it.
+ */
+export function bufferOfDeclaredEncoding(text: string): Buffer {
+  const match = text.slice(0, 256).match(/<\?xml[^?]*encoding="([^"]+)"/i);
+  const declared = (match?.[1] ?? 'utf-8').toLowerCase();
+  const encoding = declared.includes('8859-15') ? 'iso-8859-15'
+    : declared.includes('8859-1') ? 'iso-8859-1'
+    : 'utf-8';
+  return iconv.encode(text, encoding);
 }

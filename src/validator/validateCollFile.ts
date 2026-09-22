@@ -1,6 +1,7 @@
 import { dirname } from 'node:path';
 import type { XoneColl, XoneProjectModel } from '../model/XoneModel.js';
 import { XoneProject } from '../project/XoneProject.js';
+import { XmlNotWellFormed } from '../xml/XmlParser.js';
 import { Validator, type ValidationRule } from './Validator.js';
 import { ValidationResult } from './ValidationResult.js';
 import { XmlWellFormedRule } from './rules/XmlWellFormedRule.js';
@@ -73,10 +74,32 @@ export interface CollFileValidation {
 export async function validateCollFile(filePath: string): Promise<CollFileValidation> {
   let coll: XoneColl | null = null;
   let loadError: string | undefined;
+  let malformed: XmlNotWellFormed | undefined;
   try {
     coll = await XoneProject.loadCollFile(filePath);
   } catch (e) {
+    if (e instanceof XmlNotWellFormed) malformed = e;
     loadError = e instanceof Error ? e.message : String(e);
+  }
+
+  /**
+   * MALFORMED XML GETS ITS OWN ANSWER, and it is not a nicety.
+   *
+   * Everything that fails to load used to come out as COLL_FILE_UNPARSEABLE — "this file does
+   * not carry a <coll> in the root". On a file whose only problem is an unclosed `<frame>` on
+   * line 5, that message is false twice over: the file does carry a coll, and it sends the
+   * reader to look at the root when the fix is four lines down. Whoever reads this is often an
+   * agent that will now rewrite the wrong thing.
+   */
+  if (malformed) {
+    const result = new ValidationResult();
+    result.error(
+      'XML_MALFORMED',
+      `XML mal formado en la línea ${malformed.line}, columna ${malformed.column}: ${malformed.message.replace(/^line \d+, column \d+: /, '')}`,
+      filePath,
+      { file: filePath, line: malformed.line },
+    );
+    return { result, skipped: [...SKIPPED] };
   }
 
   if (!coll) {

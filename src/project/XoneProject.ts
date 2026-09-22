@@ -1,7 +1,7 @@
 import { promises as fs, existsSync, readdirSync } from 'node:fs';
 import { join, relative, extname, resolve, sep } from 'node:path';
 import { glob } from 'node:fs/promises';
-import { parseXml, parseXmlOrdered, orderedTag, orderedKids, getAttributes, getText, type XoneXmlNode } from '../xml/XmlParser.js';
+import { bufferOfDeclaredEncoding, parseXml, parseXmlOrdered, orderedTag, orderedKids, getAttributes, getText, type XoneXmlNode } from '../xml/XmlParser.js';
 import { buildStylesheet } from '../runtime/css/orderedCss.js';
 import { materializeCssAttributes } from '../runtime/css/materialize.js';
 import type {
@@ -358,8 +358,24 @@ export class XoneProject {
     return this.loadColl(path);
   }
 
-  private static async loadColl(path: string): Promise<XoneColl | null> {
-    const buf = await fs.readFile(path);
+  /**
+   * The same load, from content already in memory.
+   *
+   * Exists for validating BEFORE writing: a harness that guards `write_file` has the text and
+   * no file on disk yet, and round-tripping it through a temp file would be both a second
+   * place for the path rules to apply and a re-encode of a string that is already decoded.
+   *
+   * The content is a decoded JS string, so it is handed to `parseXml` as a buffer in the
+   * encoding the document DECLARES — that keeps one decoding path instead of two. A character
+   * the declared encoding cannot hold (a `√` in an iso-8859-15 `.xne`, which is a real case
+   * here) survives as the replacement byte and the caller sees the same document XOne would.
+   */
+  static async loadCollContent(content: string, virtualPath: string): Promise<XoneColl | null> {
+    return this.loadColl(virtualPath, bufferOfDeclaredEncoding(content));
+  }
+
+  private static async loadColl(path: string, content?: Buffer): Promise<XoneColl | null> {
+    const buf = content ?? await fs.readFile(path);
     const doc = parseXml(buf).doc;
     // El orden documental solo importa cuando hay frames y props mezclados; si el fichero no
     // contiene ambos, evitamos el 2º parse (el fallback ordena igual). Chequeo léxico barato.
